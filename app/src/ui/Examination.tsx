@@ -1,0 +1,416 @@
+import { useEffect, useMemo, useState } from 'react';
+import { useApp } from '../store';
+import { applicationsRepo, normsRepo, resultsRepo } from '../db/repositories';
+import { computeDerived, comparableMetrics } from '../domain/formulas/derive';
+import { selectNorms, SelectionResult, RankedNorm } from '../domain/normSelection/selection';
+import { computeDeviation } from '../domain/normSelection/deviation';
+import { metricHint } from '../domain/seedMethods';
+import {
+  Method,
+  Norm,
+  NORM_FLAG_LABELS,
+  QUALITY_TIER_LABELS,
+  STAT_FORM_LABELS,
+  SUBJECT_LANGUAGE,
+} from '../domain/types';
+
+interface MetricChoice {
+  selected?: { norm: Norm; wasDefault: boolean; isOverride: boolean; overrideReason?: string };
+  skipped: boolean;
+}
+
+export function Examination({ code }: { code: string }) {
+  const { db, user, subjects, methods, scoring, go, persist } = useApp();
+  const subject = subjects.find((s) => s.subjectCode === code);
+
+  const [step, setStep] = useState(1);
+  const [method, setMethod] = useState<Method | null>(null);
+  const [raw, setRaw] = useState<Record<string, string>>({});
+  const [candidates, setCandidates] = useState<Norm[]>([]);
+  const [choices, setChoices] = useState<Record<string, MetricChoice>>({});
+  const [interpretation, setInterpretation] = useState('');
+  const [shareConsent, setShareConsent] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      if (db && method) setCandidates(await normsRepo.candidatesForMethod(db, method.methodId));
+    })();
+  }, [db, method]);
+
+  if (!subject) return <div className="empty">Карточка не найдена</div>;
+
+  const rawNumbers: Record<string, number> = {};
+  let rawValid = !!method;
+  for (const m of method?.config.measures ?? []) {
+    const v = Number(raw[m.id]);
+    if (raw[m.id] === undefined || raw[m.id] === '' || !Number.isFinite(v)) rawValid = false;
+    else if ((m.min !== undefined && v < m.min) || (m.max !== undefined && v > m.max)) rawValid = false;
+    else rawNumbers[m.id] = v;
+  }
+
+  const derived = useMemo(
+    () => (method && rawValid ? computeDerived(method.config, rawNumbers) : { values: {}, errors: [] }),
+    [method, JSON.stringify(rawNumbers), rawValid],
+  );
+
+  const metrics = method ? comparableMetrics(method.config) : [];
+  const metricValue = (id: string): number =>
+    derived.values[id] !== undefined ? derived.values[id] : rawNumbers[id];
+
+  const selections: Record<string, SelectionResult> = useMemo(() => {
+    if (!method || !rawValid) return {};
+    const out: Record<string, SelectionResult> = {};
+    for (const m of metrics) {
+      out[m.id] = selectNorms(subject, method.config.gate, m.id, candidates, { scoring });
+    }
+    return out;
+  }, [method, candidates, subject, scoring, rawValid]);
+
+  const allChosen = metrics.every((m) => {
+    const c = choices[m.id];
+    if (metricValue(m.id) === undefined) return true; // показатель не рассчитался (напр. КАВ при М2=0)
+    return c && (c.skipped || c.selected);
+  });
+
+  async function save() {
+    if (!db || !user || !method) return;
+    setSaving(true);
+    const result = await resultsRepo.create(db, {
+      subjectCode: subject!.subjectCode,
+      methodId: method.methodId,
+      rawMeasures: rawNumbers,
+      derived: derived.values,
+      interpretation: interpretation.trim() || undefined,
+      shareConsent,
+      createdBy: user.userId,
+    });
+    for (const m of metrics) {
+      const c = choices[m.id];
+      const value = metricValue(m.id);
+      if (!c?.selected || value === undefined) continue;
+      const dev = computeDeviation(value, c.selected.norm);
+      await applicationsRepo.create(db, {
+        resultId: result.resultId,
+        normId: c.selected.norm.normId,
+        normVersion: c.selected.norm.version,
+        metric: m.id,
+        patientDemographics: {
+          age: subject!.age,
+          education: subject!.education,
+          sex: subject!.sex,
+          language: SUBJECT_LANGUAGE,
+        },
+        rawValue: value,
+        computedDeviation: dev,
+        systemSuggestion: metricHint(method.methodId, m.id, value),
+        wasDefault: c.selected.wasDefault,
+        clinicianConfirmed: true,
+        isOverride: c.selected.isOverride,
+        overrideReason: c.selected.overrideReason,
+        appliedBy: user.userId,
+      });
+    }
+    await persist();
+    setSaving(false);
+    go({ name: 'subject', code });
+  }
+
+  return (
+    <div>
+      <button className="secondary" onClick={() => go({ name: 'subject', code })}>
+        ← К карточке {code}
+      </button>
+      <h2 style={{ marginTop: 14 }}>Новое обследование</h2>
+      <div className="steps">
+        {['Методика', 'Замеры', 'Нормы и результат'].map((label, i) => (
+          <span key={label} className={`step ${step === i + 1 ? 'active' : step > i + 1 ? 'done' : ''}`}>
+            {i + 1}. {label}
+          </span>
+        ))}
+      </div>
+
+      {step === 1 && (
+        <div>
+          {methods
+            .filter((m) => m.isActive)
+            .map((m) => (
+              <div
+                key={m.methodId}
+                className="card clickable"
+                onClick={() => {
+                  setMethod(m);
+                  setRaw({});
+                  setChoices({});
+                  setStep(2);
+                }}
+              >
+                <strong>{m.name}</strong>
+                <div className="muted">
+                  Вводится замеров: {m.config.measures.length}; сравнивается с нормой показателей:{' '}
+                  {comparableMetrics(m.config).length}
+                </div>
+              </div>
+            ))}
+        </div>
+      )}
+
+      {step === 2 && method && (
+        <div className="card">
+          <h3 style={{ marginTop: 0 }}>{method.name} — ввод замеров</h3>
+          <div className="grid3">
+            {method.config.measures.map((m) => (
+              <label key={m.id} className="field">
+                <span>{m.label} *</span>
+                <input
+                  type="number"
+                  step="any"
+                  min={m.min}
+                  max={m.max}
+                  value={raw[m.id] ?? ''}
+                  onChange={(e) => setRaw({ ...raw, [m.id]: e.target.value })}
+                />
+              </label>
+            ))}
+          </div>
+
+          {rawValid && (
+            <>
+              <h3>Производные показатели</h3>
+              <table>
+                <tbody>
+                  {method.config.derived.map((d) => (
+                    <tr key={d.id}>
+                      <td>{d.label}</td>
+                      <td>
+                        {derived.values[d.id] !== undefined ? (
+                          <strong>{Math.round(derived.values[d.id] * 1000) / 1000}</strong>
+                        ) : (
+                          <span className="muted">
+                            не рассчитывается ({derived.errors.find((e) => e.id === d.id)?.message})
+                          </span>
+                        )}
+                        {derived.values[d.id] !== undefined && metricHint(method.methodId, d.id, derived.values[d.id]) && (
+                          <div className="muted">{metricHint(method.methodId, d.id, derived.values[d.id])}</div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
+          <div className="row" style={{ marginTop: 14 }}>
+            <button className="secondary" onClick={() => setStep(1)}>
+              ← Назад
+            </button>
+            <button className="primary" disabled={!rawValid} onClick={() => setStep(3)}>
+              К подбору норм →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 3 && method && (
+        <div>
+          <p className="muted">
+            Для каждого показателя система предлагает рекомендованную норму (подбор: допуск по
+            популяции → балл качества → тай-брейкер). Финальный выбор — за вами.
+          </p>
+          {metrics.map((m) => {
+            const value = metricValue(m.id);
+            if (value === undefined) return null;
+            return (
+              <MetricNormPicker
+                key={m.id}
+                label={`${m.label ?? m.id}: значение ${Math.round(value * 1000) / 1000}`}
+                value={value}
+                selection={selections[m.id]}
+                choice={choices[m.id] ?? { skipped: false }}
+                onChange={(c) => setChoices({ ...choices, [m.id]: c })}
+              />
+            );
+          })}
+
+          <div className="card">
+            <label className="field">
+              <span>Осторожная интерпретация (необязательно; гипотеза, не диагноз)</span>
+              <textarea
+                rows={3}
+                value={interpretation}
+                onChange={(e) => setInterpretation(e.target.value)}
+                placeholder="Например: показатель темпа сенсомоторных реакций снижен, что может указывать на…"
+              />
+            </label>
+            <label className="row" style={{ fontSize: 14 }}>
+              <input
+                type="checkbox"
+                style={{ width: 'auto' }}
+                checked={shareConsent}
+                onChange={(e) => setShareConsent(e.target.checked)}
+              />
+              Согласен(на) поделиться обезличенным результатом в общей базе (функция появится в
+              следующей версии; сейчас сохраняется только согласие)
+            </label>
+            <div className="row" style={{ marginTop: 14 }}>
+              <button className="secondary" onClick={() => setStep(2)}>
+                ← Назад
+              </button>
+              <button className="primary" disabled={!allChosen || saving} onClick={save}>
+                Сохранить обследование
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NormCard({ r, value }: { r: RankedNorm; value: number }) {
+  const dev = computeDeviation(value, r.norm);
+  return (
+    <>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <strong>{r.norm.sourceRef}</strong>
+        <span className={`badge ${r.quality.tier}`}>
+          {QUALITY_TIER_LABELS[r.quality.tier]} · {r.quality.total}/100
+        </span>
+      </div>
+      <div className="muted">
+        Возраст {r.norm.ageMin}–{r.norm.ageMax} · n ячейки = {r.norm.cellN} · {STAT_FORM_LABELS[r.norm.statForm]} ·{' '}
+        {r.norm.dataCollectionYear ? `сбор данных ${r.norm.dataCollectionYear}` : `публикация ${r.norm.publicationYear ?? '—'}`}
+      </div>
+      {r.allFlags.length > 0 && (
+        <div className="row" style={{ marginTop: 6, gap: 6 }}>
+          {r.allFlags.map((f) => (
+            <span key={f} className="badge flag">
+              {NORM_FLAG_LABELS[f]}
+            </span>
+          ))}
+        </div>
+      )}
+      <div style={{ marginTop: 6 }}>{dev.text}</div>
+      {r.quality.tier === 'weak' && (
+        <div className="warn big">Слабая норма — используйте только при отсутствии лучшей.</div>
+      )}
+    </>
+  );
+}
+
+function MetricNormPicker({
+  label,
+  value,
+  selection,
+  choice,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  selection?: SelectionResult;
+  choice: MetricChoice;
+  onChange: (c: MetricChoice) => void;
+}) {
+  const [overrideFor, setOverrideFor] = useState<string | null>(null);
+  const [overrideReason, setOverrideReason] = useState('');
+
+  if (!selection) return null;
+
+  return (
+    <div className="card">
+      <h3 style={{ marginTop: 0 }}>{label}</h3>
+
+      {selection.status === 'no_valid_norm' && (
+        <div className="warn big">
+          Валидной нормы нет: ни одна норма не подходит под профиль испытуемого. Это легитимный
+          результат — система не подставляет «ближайшую» норму.
+        </div>
+      )}
+
+      {selection.ranked.map((r, i) => {
+        const isSelected =
+          choice.selected?.norm.normId === r.norm.normId &&
+          choice.selected?.norm.version === r.norm.version &&
+          !choice.selected.isOverride;
+        return (
+          <div
+            key={`${r.norm.normId}:${r.norm.version}`}
+            className={`norm-option ${isSelected ? 'selected' : ''}`}
+            onClick={() =>
+              onChange({ skipped: false, selected: { norm: r.norm, wasDefault: i === 0, isOverride: false } })
+            }
+          >
+            {i === 0 && <div className="badge validated" style={{ marginBottom: 6 }}>Рекомендованный дефолт</div>}
+            <NormCard r={r} value={value} />
+          </div>
+        );
+      })}
+
+      {selection.rejected.length > 0 && (
+        <details className="rejected">
+          <summary>Отсеянные нормы ({selection.rejected.length}) — показать</summary>
+          {selection.rejected.map((rej) => {
+            const key = `${rej.norm.normId}:${rej.norm.version}`;
+            const isSelected = choice.selected?.isOverride && choice.selected.norm.normId === rej.norm.normId;
+            return (
+              <div key={key} className={`norm-option ${isSelected ? 'selected' : ''}`}>
+                <strong>{rej.norm.sourceRef}</strong>{' '}
+                <span className="muted">
+                  (возраст {rej.norm.ageMin}–{rej.norm.ageMax}, n = {rej.norm.cellN})
+                </span>
+                <div className="muted">Причина отсева: {rej.reasons.join('; ')}</div>
+                {isSelected ? (
+                  <div>
+                    <span className="badge override">Выбрана вручную (override)</span>
+                    <div className="muted">Обоснование: {choice.selected!.overrideReason}</div>
+                  </div>
+                ) : overrideFor === key ? (
+                  <div style={{ marginTop: 8 }}>
+                    <label className="field">
+                      <span>Обоснование применения отсеянной нормы (обязательно, попадёт в лог)</span>
+                      <input value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} />
+                    </label>
+                    <button
+                      className="danger"
+                      disabled={!overrideReason.trim()}
+                      onClick={() => {
+                        onChange({
+                          skipped: false,
+                          selected: {
+                            norm: rej.norm,
+                            wasDefault: false,
+                            isOverride: true,
+                            overrideReason: overrideReason.trim(),
+                          },
+                        });
+                        setOverrideFor(null);
+                        setOverrideReason('');
+                      }}
+                    >
+                      Применить осознанно
+                    </button>
+                  </div>
+                ) : (
+                  <button className="secondary no-print" style={{ marginTop: 8 }} onClick={() => setOverrideFor(key)}>
+                    Применить несмотря на отсев…
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </details>
+      )}
+
+      <label className="row" style={{ fontSize: 14, marginTop: 10 }}>
+        <input
+          type="checkbox"
+          style={{ width: 'auto' }}
+          checked={choice.skipped}
+          onChange={(e) => onChange({ skipped: e.target.checked, selected: undefined })}
+        />
+        Сохранить без сравнения с нормой
+      </label>
+    </div>
+  );
+}
