@@ -82,13 +82,13 @@ CREATE TABLE methods (
   is_active    INTEGER NOT NULL DEFAULT 1
 );
 
--- Испытуемые (ФИО НЕ существует как поле)
+-- Испытуемые (ФИО НЕ существует как поле; язык не хранится — респонденты всегда
+-- русскоязычные, в Gate язык испытуемого — константа 'ru')
 CREATE TABLE subjects (
   subject_code TEXT PRIMARY KEY,               -- PSY-ГГГГ-XXXX, автогенерация
   age          INTEGER NOT NULL,
   education    TEXT NOT NULL CHECK (education IN
                ('primary','secondary','vocational','higher','unknown')),
-  language     TEXT NOT NULL DEFAULT 'ru',     -- опционально в форме, дефолт «русский»
   sex          TEXT CHECK (sex IN ('m','f')),
   diagnosis    TEXT,                           -- опционально
   created_by   TEXT NOT NULL REFERENCES users(user_id),
@@ -271,7 +271,10 @@ computeDeviation(value: number, norm: Norm): Deviation
    флагом `no_education_strata`; несовпадение → по `gate.education_mismatch` методики
    (`flag` для всех методик MVP). Образование испытуемого `unknown` → pass с флагом
    `no_education_strata`.
-3. **Язык:** совпадение → pass; несовпадение → по `gate.language_mismatch`
+3. **Язык:** язык испытуемого — всегда константа `'ru'` (поле не вводится).
+   Сравнивается с `norms.language` — это язык **стимульного материала** нормы;
+   язык публикации-источника может быть любым (английский и др.) и на Gate не
+   влияет. Совпадение → pass; несовпадение → по `gate.language_mismatch`
    (для «10 слов» — fail; для невербальных — флаг `culture_mismatch`).
 4. `clinical_status`: по умолчанию в кандидаты идут только `healthy`-нормы
    (переключатель «сравнить с клинической группой» — отдельная опция).
@@ -393,7 +396,7 @@ live-скоринг; workflow валидации; версионирование
 
 1. Создать профиль Owner, завести 3 нормы для Шульте (разные возрастные ячейки,
    разные `stat_form`), одну оставить в `draft`.
-2. Создать профиль Researcher, завести испытуемого: 34 года, высшее, русский, м.
+2. Создать профиль Researcher, завести испытуемого: 34 года, высшее, м.
 3. Провести Шульте с t = [45, 50, 40, 55, 60] → увидеть ЭР = 50, ВР = 0.9, ПУ = 1.1.
 4. Убедиться: `draft`-норма не предлагается; дефолт — норма с максимальным score;
    флаги видны; после подтверждения появилась запись в `norm_applications`.
