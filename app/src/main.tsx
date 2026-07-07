@@ -2,7 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import { SqlJsAdapter, migrate } from './db/database';
-import { methodsRepo } from './db/repositories';
+import { methodsRepo, normsRepo, settingsRepo } from './db/repositories';
 import { useApp } from './store';
 import { App } from './ui/App';
 import './ui/styles.css';
@@ -25,6 +25,7 @@ async function bootstrap() {
   });
   await migrate(db);
   await methodsRepo.seedIfEmpty(db);
+  await normsRepo.seedIfEmpty(db, await settingsRepo.getScoring(db));
   await db.persist();
   await useApp.getState().init(db);
 

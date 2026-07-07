@@ -95,17 +95,17 @@ const draftOffered = (await page.locator('.norm-option:not(details .norm-option)
 console.log('OK: дефолт предложен; черновик среди кандидатов:', draftOffered, '(должно быть false)');
 console.log('  z-текст присутствует:', body.includes('z = '));
 await shot('04-norm-picker');
-// выбираем дефолт по всем трём показателям (ЭР, ВР, ПУ) — по валидированной норме есть только ЭР;
-// для ВР и ПУ норм нет → «Валидной нормы нет» → сохранить без сравнения
-const pickers = page.locator('.card', { hasText: 'значение' });
-await page.locator('.norm-option', { hasText: 'Пушкина' }).first().click();
+// По каждому показателю: если есть рекомендованные нормы (в т.ч. стартовая база) —
+// выбираем дефолт; если норм нет — сохраняем без сравнения.
+const metricCards = page.locator('.card', { has: page.getByText('Сохранить без сравнения с нормой') });
 const noNorm = await page.getByText('Валидной нормы нет').count();
-console.log('OK: для показателей без норм честно показано «Валидной нормы нет»:', noNorm, 'раз(а)');
-const skips = page.getByText('Сохранить без сравнения с нормой');
-const skipCount = await skips.count();
-for (let k = 0; k < skipCount; k++) {
-  const cardText = await skips.nth(k).locator('xpath=ancestor::div[contains(@class,"card")]').textContent();
-  if (cardText.includes('Валидной нормы нет')) await skips.nth(k).click();
+console.log('OK: показателей без валидной нормы:', noNorm);
+const mc = await metricCards.count();
+for (let k = 0; k < mc; k++) {
+  const card = metricCards.nth(k);
+  const ranked = card.locator(':scope > .norm-option').first();
+  if (await ranked.count()) await ranked.click();
+  else await card.getByText('Сохранить без сравнения с нормой').click();
 }
 await shot('05-before-save');
 await page.getByRole('button', { name: 'Сохранить обследование' }).click();

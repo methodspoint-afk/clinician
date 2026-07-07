@@ -11,6 +11,7 @@ import {
 } from '../domain/types';
 import { DEFAULT_SCORING_CONFIG, ScoringConfig, computeQuality } from '../domain/normSelection/score';
 import { SEED_METHODS } from '../domain/seedMethods';
+import { SEED_NORMS } from '../domain/seedNorms';
 
 function uid(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
@@ -300,6 +301,15 @@ export const normsRepo = {
 
   newNormId(): string {
     return uid('norm');
+  },
+
+  /** Досев стартовой базы норм: добавляет отсутствующие, существующие не трогает */
+  async seedIfEmpty(db: SqlDatabase, scoring: ScoringConfig = DEFAULT_SCORING_CONFIG): Promise<void> {
+    const rows = await db.select<{ norm_id: string }>('SELECT norm_id FROM norms');
+    const existing = new Set(rows.map((r) => r.norm_id));
+    for (const n of SEED_NORMS) {
+      if (!existing.has(n.normId)) await normsRepo.save(db, n, scoring);
+    }
   },
 
   /** Новая версия: старая остаётся в истории (supersedes), активной становится новая */

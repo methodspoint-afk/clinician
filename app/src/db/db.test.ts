@@ -146,6 +146,25 @@ describe('Нормы', () => {
     expect(candidates).toHaveLength(1);
     expect(candidates[0].version).toBe(2);
   });
+
+  it('стартовая база норм (бэкап клинициста) досевается и валидна для подбора', async () => {
+    await normsRepo.seedIfEmpty(db);
+    const all = await normsRepo.listAll(db);
+    expect(all).toHaveLength(7);
+    // все валидированы и активны → сразу участвуют в подборе
+    expect(all.every((n) => n.validationStatus === 'validated' && n.active)).toBe(true);
+    // Шульте: ЭР, ПУ, ВР
+    const schulte = await normsRepo.candidatesForMethod(db, 'schulte');
+    expect(schulte.map((n) => n.metric).sort()).toEqual(['ER', 'PU', 'VR']);
+    // балл пересчитан по актуальной схеме (не взят из бэкапа)
+    expect(all.every((n) => (n.qualityScore ?? 0) > 0)).toBe(true);
+  });
+
+  it('повторный досев норм идемпотентен (по normId)', async () => {
+    await normsRepo.seedIfEmpty(db);
+    await normsRepo.seedIfEmpty(db);
+    expect(await normsRepo.listAll(db)).toHaveLength(7);
+  });
 });
 
 describe('Результаты и лог применения', () => {
