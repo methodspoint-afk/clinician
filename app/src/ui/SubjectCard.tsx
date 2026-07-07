@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../store';
 import { applicationsRepo, resultsRepo } from '../db/repositories';
+import { metricLabel } from '../domain/formulas/derive';
 import { EDUCATION_LABELS, NORM_FLAG_LABELS, NormApplication, SEX_LABELS, TestResult } from '../domain/types';
 
 export function SubjectCard({ code }: { code: string }) {
@@ -23,6 +24,8 @@ export function SubjectCard({ code }: { code: string }) {
   if (!subject) return <div className="empty">Карточка не найдена</div>;
 
   const methodName = (id: string) => methods.find((m) => m.methodId === id)?.name ?? id;
+  const label = (methodId: string, metricId: string) =>
+    metricLabel(methods.find((m) => m.methodId === methodId)?.config, metricId);
 
   return (
     <div>
@@ -42,12 +45,16 @@ export function SubjectCard({ code }: { code: string }) {
       </div>
 
       <div className="card">
-        <div className="row" style={{ gap: 24 }}>
+        <div className="row" style={{ gap: 24, flexWrap: 'wrap' }}>
           <span>Возраст: <strong>{subject.age}</strong></span>
           <span>Образование: <strong>{EDUCATION_LABELS[subject.education]}</strong></span>
           {subject.sex && <span>Пол: <strong>{SEX_LABELS[subject.sex]}</strong></span>}
           {subject.diagnosis && <span>Диагноз: <strong>{subject.diagnosis}</strong></span>}
+          {subject.medications && <span>Препараты: <strong>{subject.medications}</strong></span>}
         </div>
+        {subject.comment && (
+          <p className="muted" style={{ marginBottom: 0 }}>Комментарий специалиста: {subject.comment}</p>
+        )}
       </div>
 
       <h3>История обследований</h3>
@@ -69,7 +76,7 @@ export function SubjectCard({ code }: { code: string }) {
             <tbody>
               {(apps[r.resultId] ?? []).map((a) => (
                 <tr key={a.applicationId}>
-                  <td>{a.metric}</td>
+                  <td>{label(r.methodId, a.metric)}</td>
                   <td>{a.rawValue}</td>
                   <td>
                     {a.computedDeviation.text}
@@ -86,7 +93,7 @@ export function SubjectCard({ code }: { code: string }) {
                 .filter(([k]) => !(apps[r.resultId] ?? []).some((a) => a.metric === k))
                 .map(([k, v]) => (
                   <tr key={k}>
-                    <td>{k}</td>
+                    <td>{label(r.methodId, k)}</td>
                     <td>{Math.round(v * 1000) / 1000}</td>
                     <td className="muted">без сравнения с нормой</td>
                   </tr>

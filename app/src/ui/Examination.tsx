@@ -159,20 +159,32 @@ export function Examination({ code }: { code: string }) {
         <div className="card">
           <h3 style={{ marginTop: 0 }}>{method.name} — ввод замеров</h3>
           <div className="grid3">
-            {method.config.measures.map((m) => (
-              <label key={m.id} className="field">
-                <span>{m.label} *</span>
-                <input
-                  type="number"
-                  step="any"
-                  min={m.min}
-                  max={m.max}
-                  value={raw[m.id] ?? ''}
-                  onChange={(e) => setRaw({ ...raw, [m.id]: e.target.value })}
-                />
-              </label>
-            ))}
+            {method.config.measures.map((m) => {
+              const v = Number(raw[m.id]);
+              const filled =
+                raw[m.id] !== undefined &&
+                raw[m.id] !== '' &&
+                Number.isFinite(v) &&
+                !(m.min !== undefined && v < m.min) &&
+                !(m.max !== undefined && v > m.max);
+              return (
+                <label key={m.id} className={`field${filled ? '' : ' missing'}`}>
+                  <span>{m.label} *</span>
+                  <input
+                    type="number"
+                    step="any"
+                    min={m.min}
+                    max={m.max}
+                    value={raw[m.id] ?? ''}
+                    onChange={(e) => setRaw({ ...raw, [m.id]: e.target.value })}
+                  />
+                </label>
+              );
+            })}
           </div>
+          {!rawValid && (
+            <div className="missing-hint">Заполните все замеры (поля, помеченные красным).</div>
+          )}
 
           {rawValid && (
             <>
@@ -226,6 +238,7 @@ export function Examination({ code }: { code: string }) {
                 key={m.id}
                 label={`${m.label ?? m.id}: значение ${Math.round(value * 1000) / 1000}`}
                 value={value}
+                subjectAge={subject.age}
                 selection={selections[m.id]}
                 choice={choices[m.id] ?? { skipped: false }}
                 onChange={(c) => setChoices({ ...choices, [m.id]: c })}
@@ -235,12 +248,15 @@ export function Examination({ code }: { code: string }) {
 
           <div className="card">
             <label className="field">
-              <span>Осторожная интерпретация (необязательно; гипотеза, не диагноз)</span>
+              <span>
+                Комментарий специалиста по методике (необязательно; войдёт в протокол и отчёт —
+                например, слова испытуемого во время выполнения)
+              </span>
               <textarea
                 rows={3}
                 value={interpretation}
                 onChange={(e) => setInterpretation(e.target.value)}
-                placeholder="Например: показатель темпа сенсомоторных реакций снижен, что может указывать на…"
+                placeholder="Например: выраженная истощаемость к 4-й таблице; со слов испытуемого — «цифры расплываются»"
               />
             </label>
             <label className="row" style={{ fontSize: 14 }}>
@@ -302,12 +318,14 @@ function NormCard({ r, value }: { r: RankedNorm; value: number }) {
 function MetricNormPicker({
   label,
   value,
+  subjectAge,
   selection,
   choice,
   onChange,
 }: {
   label: string;
   value: number;
+  subjectAge: number;
   selection?: SelectionResult;
   choice: MetricChoice;
   onChange: (c: MetricChoice) => void;
@@ -317,14 +335,25 @@ function MetricNormPicker({
 
   if (!selection) return null;
 
+  const noValid = selection.status === 'no_valid_norm';
+  // При «нормы нет» показываем отсеянные сразу, ближайшие по возрасту — первыми:
+  // клиницист видит их характеристики и решает — применить осознанно или без сравнения
+  const ageDistance = (n: Norm) =>
+    subjectAge < n.ageMin ? n.ageMin - subjectAge : subjectAge > n.ageMax ? subjectAge - n.ageMax : 0;
+  const rejectedShown = noValid
+    ? [...selection.rejected].sort((a, b) => ageDistance(a.norm) - ageDistance(b.norm))
+    : selection.rejected;
+
   return (
     <div className="card">
       <h3 style={{ marginTop: 0 }}>{label}</h3>
 
-      {selection.status === 'no_valid_norm' && (
+      {noValid && (
         <div className="warn big">
-          Валидной нормы нет: ни одна норма не подходит под профиль испытуемого. Это легитимный
-          результат — система не подставляет «ближайшую» норму.
+          Валидной нормы нет: ни одна норма не прошла допуск по популяции. Система не подставляет
+          «ближайшую» норму автоматически. Ниже показаны ближайшие нормы с их характеристиками —
+          вы можете применить одну из них осознанно (выбор попадёт в лог) или сохранить показатель
+          без сравнения с нормой.
         </div>
       )}
 
@@ -347,17 +376,25 @@ function MetricNormPicker({
         );
       })}
 
-      {selection.rejected.length > 0 && (
-        <details className="rejected">
-          <summary>Отсеянные нормы ({selection.rejected.length}) — показать</summary>
-          {selection.rejected.map((rej) => {
+      {rejectedShown.length > 0 && (
+        <details className="rejected" open={noValid}>
+          <summary>
+            {noValid
+              ? `Ближайшие нормы, не прошедшие допуск (${rejectedShown.length})`
+              : `Отсеянные нормы (${rejectedShown.length}) — показать`}
+          </summary>
+          {rejectedShown.map((rej) => {
             const key = `${rej.norm.normId}:${rej.norm.version}`;
             const isSelected = choice.selected?.isOverride && choice.selected.norm.normId === rej.norm.normId;
             return (
               <div key={key} className={`norm-option ${isSelected ? 'selected' : ''}`}>
                 <strong>{rej.norm.sourceRef}</strong>{' '}
                 <span className="muted">
-                  (возраст {rej.norm.ageMin}–{rej.norm.ageMax}, n = {rej.norm.cellN})
+                  (возраст {rej.norm.ageMin}–{rej.norm.ageMax}, n = {rej.norm.cellN},{' '}
+                  {STAT_FORM_LABELS[rej.norm.statForm]},{' '}
+                  {rej.norm.dataCollectionYear
+                    ? `сбор ${rej.norm.dataCollectionYear}`
+                    : `публикация ${rej.norm.publicationYear ?? '—'}`})
                 </span>
                 <div className="muted">Причина отсева: {rej.reasons.join('; ')}</div>
                 {isSelected ? (

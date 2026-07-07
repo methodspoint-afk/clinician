@@ -258,11 +258,16 @@ function NormForm({
     onSave({ ...n, percentiles });
   }
 
-  const valid =
-    n.sourceRef.trim() &&
-    n.cellN > 0 &&
-    n.ageMin <= n.ageMax &&
-    (n.statForm !== 'mean_sd' || (n.mean !== undefined && n.sd !== undefined));
+  // Незаполненные обязательные поля — подсветка красным (запрос клинициста):
+  // без неё легко не заметить пропущенный год и «зависнуть» на неактивной кнопке
+  const missing = {
+    sourceRef: !n.sourceRef.trim(),
+    cellN: !(n.cellN > 0),
+    ageRange: n.ageMin > n.ageMax,
+    meanSd: n.statForm === 'mean_sd' && (n.mean === undefined || n.sd === undefined),
+    year: n.dataCollectionYear === undefined && n.publicationYear === undefined,
+  };
+  const valid = !Object.values(missing).some(Boolean);
 
   return (
     <div>
@@ -291,7 +296,7 @@ function NormForm({
 
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Источник</h3>
-        <label className="field">
+        <label className={`field${missing.sourceRef ? ' missing' : ''}`}>
           <span>Библиография / DOI / выходные данные *</span>
           <input value={n.sourceRef} onChange={(e) => set({ sourceRef: e.target.value })} />
         </label>
@@ -306,16 +311,16 @@ function NormForm({
               ))}
             </select>
           </label>
-          <label className="field">
-            <span>Год сбора данных</span>
+          <label className={`field${missing.year ? ' missing' : ''}`}>
+            <span>Год сбора данных *</span>
             <input
               type="number"
               value={n.dataCollectionYear ?? ''}
               onChange={(e) => set({ dataCollectionYear: e.target.value ? Number(e.target.value) : undefined })}
             />
           </label>
-          <label className="field">
-            <span>Год публикации</span>
+          <label className={`field${missing.year ? ' missing' : ''}`}>
+            <span>Год публикации * (нужен хотя бы один из годов)</span>
             <input
               type="number"
               value={n.publicationYear ?? ''}
@@ -385,15 +390,15 @@ function NormForm({
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Популяция (вход допуска)</h3>
         <div className="grid3">
-          <label className="field">
+          <label className={`field${missing.ageRange ? ' missing' : ''}`}>
             <span>Возраст от *</span>
             <input type="number" value={n.ageMin} onChange={(e) => set({ ageMin: Number(e.target.value) })} />
           </label>
-          <label className="field">
+          <label className={`field${missing.ageRange ? ' missing' : ''}`}>
             <span>Возраст до *</span>
             <input type="number" value={n.ageMax} onChange={(e) => set({ ageMax: Number(e.target.value) })} />
           </label>
-          <label className="field">
+          <label className={`field${missing.cellN ? ' missing' : ''}`}>
             <span>Размер этой ячейки (n) *</span>
             <input type="number" value={n.cellN || ''} onChange={(e) => set({ cellN: Number(e.target.value) })} />
           </label>
@@ -476,8 +481,8 @@ function NormForm({
                 ))}
             </select>
           </label>
-          <label className="field">
-            <span>Среднее (M)</span>
+          <label className={`field${missing.meanSd && n.mean === undefined ? ' missing' : ''}`}>
+            <span>Среднее (M){n.statForm === 'mean_sd' ? ' *' : ''}</span>
             <input
               type="number"
               step="any"
@@ -485,8 +490,8 @@ function NormForm({
               onChange={(e) => set({ mean: e.target.value ? Number(e.target.value) : undefined })}
             />
           </label>
-          <label className="field">
-            <span>Стандартное отклонение (SD)</span>
+          <label className={`field${missing.meanSd && n.sd === undefined ? ' missing' : ''}`}>
+            <span>Стандартное отклонение (SD){n.statForm === 'mean_sd' ? ' *' : ''}</span>
             <input
               type="number"
               step="any"
@@ -530,6 +535,12 @@ function NormForm({
           Отмена
         </button>
       </div>
+      {!valid && (
+        <div className="missing-hint">
+          Заполните обязательные поля, помеченные красным
+          {missing.ageRange ? ' («возраст от» не может быть больше «возраст до»)' : ''}.
+        </div>
+      )}
     </div>
   );
 }

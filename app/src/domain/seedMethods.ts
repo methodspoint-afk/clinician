@@ -33,6 +33,7 @@ export const SEED_METHODS: Method[] = [
         },
       ],
       gate: { educationMismatch: 'flag', languageMismatch: 'flag' }, // невербальная проба
+      domain: 'attention',
     },
   },
   {
@@ -57,6 +58,7 @@ export const SEED_METHODS: Method[] = [
         { id: 'substitutions', higherIsWorse: true },
       ],
       gate: { educationMismatch: 'flag', languageMismatch: 'fail' }, // вербальная проба
+      domain: 'memory',
     },
   },
   {
@@ -91,6 +93,7 @@ export const SEED_METHODS: Method[] = [
       ],
       compareMeasures: [{ id: 'errors_total', higherIsWorse: true }],
       gate: { educationMismatch: 'flag', languageMismatch: 'flag' },
+      domain: 'attention',
     },
   },
   {
@@ -103,9 +106,98 @@ export const SEED_METHODS: Method[] = [
       derived: [],
       compareMeasures: [{ id: 'score', higherIsWorse: false }],
       gate: { educationMismatch: 'flag', languageMismatch: 'flag' },
+      domain: 'memory',
+    },
+  },
+  // --- Методики итерации 1 (по запросу клинициста, июль 2026) ---
+  {
+    methodId: 'digit_span',
+    name: 'Воспроизведение чисел (прямое и обратное)',
+    measureType: 'quantitative',
+    isActive: true,
+    config: {
+      measures: [
+        { id: 'forward', label: 'Прямое воспроизведение (макс. длина ряда)', type: 'number', min: 0, max: 12 },
+        { id: 'backward', label: 'Обратное воспроизведение (макс. длина ряда)', type: 'number', min: 0, max: 12 },
+      ],
+      derived: [],
+      compareMeasures: [
+        { id: 'forward', higherIsWorse: false },
+        { id: 'backward', higherIsWorse: false },
+      ],
+      // Цифры предъявляются устно, но материал культурно-нейтрален — язык как флаг
+      gate: { educationMismatch: 'flag', languageMismatch: 'flag' },
+      domain: 'memory',
+    },
+  },
+  {
+    methodId: 'concept_comparison',
+    name: 'Сравнение понятий',
+    measureType: 'quantitative',
+    isActive: true,
+    config: {
+      measures: [
+        { id: 'pairs_total', label: 'Предъявлено пар понятий', type: 'number', min: 1 },
+        { id: 'adequate', label: 'Сравнений по существенному признаку', type: 'number', min: 0 },
+        {
+          id: 'incomparable_ok',
+          label: 'Несравнимых пар, верно отвергнутых',
+          type: 'number',
+          min: 0,
+        },
+      ],
+      derived: [
+        {
+          id: 'adequate_pct',
+          label: 'Доля адекватных сравнений, %',
+          expr: 'adequate / pairs_total * 100',
+          higherIsWorse: false,
+          compareWithNorm: true,
+        },
+      ],
+      compareMeasures: [{ id: 'adequate', higherIsWorse: false }],
+      gate: { educationMismatch: 'fail', languageMismatch: 'fail' }, // вербальная, чувствительна к образованию
+      domain: 'thinking',
+    },
+  },
+  {
+    methodId: 'pictogram',
+    name: 'Пиктограммы (опосредованное запоминание, количественная часть)',
+    measureType: 'quantitative',
+    isActive: true,
+    config: {
+      // Качественный анализ рисунков сознательно не автоматизируется —
+      // фиксируется только воспроизведение; пары «слово → ответ» вносить в комментарий
+      measures: [
+        { id: 'words_presented', label: 'Предъявлено слов/понятий', type: 'number', min: 1 },
+        { id: 'words_recalled', label: 'Воспроизведено при отсроченном назывании', type: 'number', min: 0 },
+      ],
+      derived: [
+        {
+          id: 'recall_pct',
+          label: 'Доля воспроизведения, %',
+          expr: 'words_recalled / words_presented * 100',
+          higherIsWorse: false,
+          compareWithNorm: true,
+        },
+      ],
+      compareMeasures: [{ id: 'words_recalled', higherIsWorse: false }],
+      gate: { educationMismatch: 'flag', languageMismatch: 'fail' },
+      domain: 'memory',
     },
   },
 ];
+
+/** Домены методик, добавленных до появления поля domain (для старых локальных БД) */
+export const METHOD_DOMAIN_FALLBACK: Record<string, import('./types').MethodDomain> = {
+  schulte: 'attention',
+  correction_test: 'attention',
+  ten_words: 'memory',
+  visual_spatial_memory: 'memory',
+  digit_span: 'memory',
+  pictogram: 'memory',
+  concept_comparison: 'thinking',
+};
 
 /** Текстовые подсказки к показателям (осторожные, не диагноз) */
 export function metricHint(methodId: string, metricId: string, value: number): string | undefined {

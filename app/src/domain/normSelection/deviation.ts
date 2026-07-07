@@ -69,24 +69,36 @@ function percentileDeviation(value: number, norm: Norm): Deviation {
     ? `хуже, чем у ${round1(direction)} % нормативной выборки`
     : `лучше, чем у ${round1(direction)} % нормативной выборки`;
 
+  // «Повышение/снижение показателя» — по положению значения относительно медианы
+  // нормы (для клинициста важнее направления перцентиля как числа)
+  const raised = ascending ? percentile > 50 : percentile < 50;
+  const dirWord =
+    percentile === 50 ? 'Показатель на уровне медианы' : raised ? 'Повышение показателя' : 'Снижение показателя';
+
   return {
     kind: 'percentile',
     value: percentile,
     bounded,
-    text: `Соответствует ${pText}-му перцентилю (${wording})`,
+    text: `${dirWord} относительно нормы условно здоровых; соответствует ${pText}-му перцентилю (${wording})`,
   };
 }
 
 function zDeviation(value: number, norm: Norm): Deviation {
   const z = (value - norm.mean!) / norm.sd!;
   const zr = round1(z);
-  const worse = z > 0 === norm.higherIsWorse && Math.abs(z) > 0;
-  const dirText =
-    Math.abs(z) < 1
-      ? 'в пределах нормы (< 1 σ)'
-      : worse
-        ? `отклонение в сторону ухудшения на ~${Math.abs(zr)} σ`
-        : `отклонение в сторону улучшения на ~${Math.abs(zr)} σ`;
+  const raised = z > 0; // значение выше среднего нормы
+  const worse = raised === norm.higherIsWorse && Math.abs(z) > 0;
+  // Формулировка «снижение/повышение показателя + сила» — запрос клинициста:
+  // не голое число, а направление и выраженность относительно условно здоровых.
+  let dirText: string;
+  if (Math.abs(z) < 1) {
+    dirText = `Показатель в пределах нормы условно здоровых (отклонение < 1 σ; z = ${zr >= 0 ? '+' : ''}${zr})`;
+  } else {
+    const severity = Math.abs(z) >= 2 ? 'выраженное' : 'умеренное';
+    dirText =
+      `${raised ? 'Повышение' : 'Снижение'} показателя относительно нормы условно здоровых: ` +
+      `${severity} (~${Math.abs(zr)} σ, z = ${zr >= 0 ? '+' : ''}${zr}), в сторону ${worse ? 'ухудшения' : 'улучшения'}`;
+  }
   const warning = norm.isSkewed
     ? ' ⚠ Распределение скошено: пороги на хвостах приблизительны, предпочтительна перцентильная норма.'
     : '';
@@ -94,6 +106,6 @@ function zDeviation(value: number, norm: Norm): Deviation {
     kind: 'z',
     value: zr,
     skewedWarning: norm.isSkewed,
-    text: `z = ${zr >= 0 ? '+' : ''}${zr}; ${dirText}.${warning}`,
+    text: `${dirText}.${warning}`,
   };
 }

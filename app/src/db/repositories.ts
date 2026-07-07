@@ -71,10 +71,13 @@ export const methodsRepo = {
     );
   },
 
+  /** Досев: добавляет отсутствующие предустановленные методики, существующие не трогает */
   async seedIfEmpty(db: SqlDatabase): Promise<void> {
-    const [{ n }] = await db.select<{ n: number }>('SELECT COUNT(*) AS n FROM methods');
-    if (n > 0) return;
-    for (const m of SEED_METHODS) await methodsRepo.upsert(db, m);
+    const rows = await db.select<{ method_id: string }>('SELECT method_id FROM methods');
+    const existing = new Set(rows.map((r) => r.method_id));
+    for (const m of SEED_METHODS) {
+      if (!existing.has(m.methodId)) await methodsRepo.upsert(db, m);
+    }
   },
 };
 
@@ -103,13 +106,15 @@ export const subjectsRepo = {
       createdAt: nowIso(),
     };
     await db.run(
-      'INSERT INTO subjects (subject_code, age, education, sex, diagnosis, created_by, created_at) VALUES (?,?,?,?,?,?,?)',
+      'INSERT INTO subjects (subject_code, age, education, sex, diagnosis, medications, comment, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
       [
         subject.subjectCode,
         subject.age,
         subject.education,
         subject.sex ?? null,
         subject.diagnosis ?? null,
+        subject.medications ?? null,
+        subject.comment ?? null,
         subject.createdBy,
         subject.createdAt,
       ],
@@ -126,6 +131,8 @@ export const subjectsRepo = {
       education: Subject['education'];
       sex: Subject['sex'] | null;
       diagnosis: string | null;
+      medications: string | null;
+      comment: string | null;
       created_by: string;
       created_at: string;
     }>(`SELECT * FROM subjects ${where} ORDER BY created_at DESC`, user.role === 'owner' ? [] : [user.userId]);
@@ -135,6 +142,8 @@ export const subjectsRepo = {
       education: r.education,
       sex: r.sex ?? undefined,
       diagnosis: r.diagnosis ?? undefined,
+      medications: r.medications ?? undefined,
+      comment: r.comment ?? undefined,
       createdBy: r.created_by,
       createdAt: r.created_at,
     }));

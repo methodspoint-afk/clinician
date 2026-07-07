@@ -30,6 +30,10 @@ export interface Subject {
   education: Education;
   sex?: Sex;
   diagnosis?: string;
+  /** Принимаемые препараты — влияют на интерпретацию когнитивных показателей */
+  medications?: string;
+  /** Свободный комментарий специалиста к карточке */
+  comment?: string;
   createdBy: string;
   createdAt: string;
 }
@@ -58,7 +62,24 @@ export type GateSeverity = 'flag' | 'fail';
 export interface MethodGateConfig {
   educationMismatch: GateSeverity;
   languageMismatch: GateSeverity;
+  /**
+   * Допустимый заход возраста за ячейку нормы внутри взрослого диапазона 16–60
+   * (когнитивные методики; для личностных ставить 0). По умолчанию 10 лет.
+   */
+  ageStretchYears?: number;
 }
+
+/** Психическая сфера, которую измеряет методика (для группировки отчёта) */
+export type MethodDomain = 'attention' | 'memory' | 'thinking' | 'other';
+
+export const METHOD_DOMAIN_LABELS: Record<MethodDomain, string> = {
+  attention: 'Внимание и работоспособность',
+  memory: 'Память',
+  thinking: 'Мышление',
+  other: 'Другое',
+};
+
+export const METHOD_DOMAIN_ORDER: MethodDomain[] = ['attention', 'memory', 'thinking', 'other'];
 
 export interface MethodConfig {
   measures: MeasureDef[];
@@ -66,6 +87,7 @@ export interface MethodConfig {
   /** Показатели-замеры, которые сравниваются с нормой напрямую (без формулы) */
   compareMeasures?: { id: string; higherIsWorse: boolean }[];
   gate: MethodGateConfig;
+  domain?: MethodDomain;
 }
 
 export interface Method {
@@ -132,6 +154,7 @@ export const QUALITY_TIER_LABELS: Record<QualityTier, string> = {
 
 export type NormFlag =
   | 'edge_of_cell'
+  | 'age_stretch'
   | 'skewed_distribution'
   | 'old_data'
   | 'procedure_mismatch'
@@ -142,6 +165,7 @@ export type NormFlag =
 
 export const NORM_FLAG_LABELS: Record<NormFlag, string> = {
   edge_of_cell: 'Пациент на границе возрастной ячейки',
+  age_stretch: 'Возраст вне ячейки нормы (в пределах взрослого допуска 16–60, до 10 лет)',
   skewed_distribution: 'Скошенное распределение (пороги на хвостах приблизительны)',
   old_data: 'Старые данные (сбор > 35 лет назад)',
   procedure_mismatch: 'Процедура/метрика отличается от вашей',

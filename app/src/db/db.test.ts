@@ -55,20 +55,48 @@ beforeEach(async () => {
 });
 
 describe('Миграции и seed', () => {
-  it('4 предустановленные методики на месте', async () => {
+  it('7 предустановленных методик на месте', async () => {
     const methods = await methodsRepo.list(db);
     expect(methods.map((m) => m.methodId).sort()).toEqual([
+      'concept_comparison',
       'correction_test',
+      'digit_span',
+      'pictogram',
       'schulte',
       'ten_words',
       'visual_spatial_memory',
     ]);
   });
 
-  it('повторная миграция не ломает БД', async () => {
+  it('повторная миграция и досев не ломают БД', async () => {
     await migrate(db);
+    await methodsRepo.seedIfEmpty(db);
     const methods = await methodsRepo.list(db);
-    expect(methods).toHaveLength(4);
+    expect(methods).toHaveLength(7);
+  });
+
+  it('досев добавляет отсутствующие методики, не трогая существующие', async () => {
+    // Имитация старой БД: специалист переименовал Шульте, новых методик ещё нет
+    await db.run("UPDATE methods SET name = 'Шульте (правка специалиста)' WHERE method_id = 'schulte'");
+    await db.run("DELETE FROM methods WHERE method_id IN ('digit_span','pictogram','concept_comparison')");
+    await methodsRepo.seedIfEmpty(db);
+    const methods = await methodsRepo.list(db);
+    expect(methods).toHaveLength(7);
+    expect(methods.find((m) => m.methodId === 'schulte')!.name).toBe('Шульте (правка специалиста)');
+  });
+
+  it('v2: препараты и комментарий сохраняются в карточке испытуемого', async () => {
+    const s = await subjectsRepo.create(db, {
+      age: 34,
+      education: 'higher',
+      medications: 'галоперидол 5 мг/сут',
+      comment: 'билингв',
+      createdBy: owner.userId,
+    });
+    const [loaded] = await subjectsRepo.listVisible(db, owner);
+    expect(loaded.subjectCode).toBe(s.subjectCode);
+    expect(loaded.medications).toBe('галоперидол 5 мг/сут');
+    expect(loaded.comment).toBe('билингв');
   });
 });
 

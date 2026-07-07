@@ -50,6 +50,7 @@ step('Создание черновика нормы (не должен попа
 await page.getByRole('button', { name: '+ Новая норма' }).click();
 await page.getByLabel('Библиография / DOI / выходные данные *').fill('ЧЕРНОВИК-ИСТОЧНИК (не должен предлагаться)');
 await page.locator('label.field:has(> span:text-is("Методика")) select').selectOption('schulte');
+await page.getByLabel('Год публикации').fill('2019'); // год обязателен (подсветка красным)
 await page.getByLabel('Возраст до *').fill('45');
 await page.getByLabel('Размер этой ячейки (n) *').fill('50');
 await page.getByLabel('Среднее (M)').fill('40');
@@ -130,9 +131,10 @@ await page.getByRole('button', { name: 'К подбору норм →' }).click
 await page.getByText('Валидной нормы нет').first().waitFor();
 console.log('OK: для 83 лет — «Валидной нормы нет», ближайшая не подставлена');
 await shot('07-no-valid-norm');
-// override
-await page.locator('details.rejected summary').first().click();
-const rejText = await page.locator('details.rejected').first().textContent();
+// override; при «нормы нет» список ближайших раскрыт автоматически — раскрываем только если закрыт
+const rejDetails = page.locator('details.rejected').first();
+if (!(await rejDetails.evaluate((el) => el.open))) await rejDetails.locator('summary').click();
+const rejText = await rejDetails.textContent();
 console.log('OK: причина отсева видна:', rejText.includes('вне диапазона'));
 await page.getByRole('button', { name: 'Применить несмотря на отсев…' }).first().click();
 await page.getByLabel(/Обоснование применения отсеянной нормы/).fill('Единственная доступная норма; клинически сопоставимая выборка');
