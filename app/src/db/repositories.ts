@@ -348,13 +348,14 @@ export const resultsRepo = {
     const result: TestResult = { ...data, resultId: uid('res'), createdAt: nowIso() };
     await db.run(
       `INSERT INTO test_results (result_id, subject_code, method_id, raw_measures, derived,
-        interpretation, share_consent, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+        qualitative, interpretation, share_consent, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
       [
         result.resultId,
         result.subjectCode,
         result.methodId,
         JSON.stringify(result.rawMeasures),
         JSON.stringify(result.derived),
+        result.qualitativeRows && result.qualitativeRows.length ? JSON.stringify(result.qualitativeRows) : null,
         result.interpretation ?? null,
         result.shareConsent ? 1 : 0,
         result.createdBy,
@@ -371,6 +372,7 @@ export const resultsRepo = {
       method_id: string;
       raw_measures: string;
       derived: string;
+      qualitative: string | null;
       interpretation: string | null;
       share_consent: number;
       created_by: string;
@@ -382,6 +384,7 @@ export const resultsRepo = {
       methodId: r.method_id,
       rawMeasures: JSON.parse(r.raw_measures),
       derived: JSON.parse(r.derived),
+      qualitativeRows: r.qualitative ? JSON.parse(r.qualitative) : undefined,
       interpretation: r.interpretation ?? undefined,
       shareConsent: !!r.share_consent,
       createdBy: r.created_by,

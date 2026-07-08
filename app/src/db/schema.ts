@@ -117,4 +117,9 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE subjects ADD COLUMN medications TEXT;
   ALTER TABLE subjects ADD COLUMN comment TEXT;
   `,
+
+  // v3 — протокол качественных проб (JSON-массив строк) в результате обследования
+  `
+  ALTER TABLE test_results ADD COLUMN qualitative TEXT;
+  `,
 ];

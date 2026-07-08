@@ -105,6 +105,8 @@ export function NormsScreen() {
 
   const visible = norms.filter((n) => !filterMethod || n.methodId === filterMethod);
   const methodName = (id: string) => methods.find((m) => m.methodId === id)?.name ?? id;
+  // Нормы применимы только к количественным методикам (у качественных проб норм нет)
+  const quantMethods = methods.filter((m) => m.measureType === 'quantitative');
 
   return (
     <div>
@@ -113,7 +115,7 @@ export function NormsScreen() {
         <button
           className="primary"
           onClick={() => {
-            const m = methods[0];
+            const m = quantMethods[0];
             const metric = m ? comparableMetrics(m.config)[0] : undefined;
             setEditing({
               ...emptyNorm(m?.methodId ?? 'schulte', metric?.id ?? ''),
@@ -132,7 +134,7 @@ export function NormsScreen() {
         <span>Фильтр по методике</span>
         <select value={filterMethod} onChange={(e) => setFilterMethod(e.target.value)}>
           <option value="">Все методики</option>
-          {methods.map((m) => (
+          {quantMethods.map((m) => (
             <option key={m.methodId} value={m.methodId}>
               {m.name}
             </option>
@@ -213,6 +215,7 @@ function NormForm({
   onCancel: () => void;
 }) {
   const { methods, scoring } = useApp();
+  const quantMethods = methods.filter((m) => m.measureType === 'quantitative');
   const [n, setN] = useState<Norm>(norm);
   const [percText, setPercText] = useState(
     norm.percentiles ? Object.entries(norm.percentiles).map(([p, v]) => `${p}: ${v}`).join('\n') : '',
@@ -344,7 +347,7 @@ function NormForm({
                 set({ methodId: mid, metric: metrics[0]?.id ?? '' });
               }}
             >
-              {methods.map((m) => (
+              {quantMethods.map((m) => (
                 <option key={m.methodId} value={m.methodId}>
                   {m.name}
                 </option>

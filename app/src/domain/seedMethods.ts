@@ -186,6 +186,63 @@ export const SEED_METHODS: Method[] = [
       domain: 'memory',
     },
   },
+  // --- Качественные методики (итерация 2): протокол ответов без числовых норм.
+  // Цель — накопление базы; система не подсказывает квалификацию (ТЗ, раздел 7).
+  {
+    methodId: 'exclusion',
+    name: 'Исключение лишнего (4-й лишний)',
+    measureType: 'qualitative',
+    isActive: true,
+    config: {
+      measures: [],
+      derived: [],
+      // Вербально-логическая проба: чувствительна к образованию и языку
+      gate: { educationMismatch: 'fail', languageMismatch: 'fail' },
+      domain: 'thinking',
+      qualitative: {
+        itemLabel: 'Задание',
+        fields: [
+          { id: 'stimulus', label: 'Набор (4 предмета/слова)', type: 'text', placeholder: 'напр.: стол, стул, кровать, чайник' },
+          { id: 'excluded', label: 'Что исключил испытуемый', type: 'text' },
+          { id: 'explanation', label: 'Пояснение испытуемого', type: 'text', placeholder: 'своими словами, как объяснил выбор' },
+          {
+            id: 'qualification',
+            label: 'Квалификация обобщения',
+            type: 'choice',
+            options: [
+              'по существенному признаку',
+              'по функциональному признаку',
+              'конкретно-ситуативное',
+              'по латентному признаку',
+              'отказ / не выполнено',
+            ],
+          },
+          { id: 'comment', label: 'Комментарий специалиста', type: 'text' },
+        ],
+      },
+    },
+  },
+  {
+    methodId: 'pictogram_protocol',
+    name: 'Пиктограммы — протокол опосредования',
+    measureType: 'qualitative',
+    isActive: true,
+    config: {
+      measures: [],
+      derived: [],
+      gate: { educationMismatch: 'flag', languageMismatch: 'fail' },
+      domain: 'memory',
+      qualitative: {
+        itemLabel: 'Слово-стимул',
+        fields: [
+          { id: 'word', label: 'Слово / понятие для запоминания', type: 'text' },
+          { id: 'image', label: 'Образ / рисунок (описание испытуемого)', type: 'text' },
+          { id: 'recalled_word', label: 'Воспроизведённое слово при назывании', type: 'text', placeholder: 'пусто — если не воспроизвёл' },
+          { id: 'comment', label: 'Комментарий специалиста', type: 'text' },
+        ],
+      },
+    },
+  },
 ];
 
 /** Домены методик, добавленных до появления поля domain (для старых локальных БД) */
@@ -196,7 +253,9 @@ export const METHOD_DOMAIN_FALLBACK: Record<string, import('./types').MethodDoma
   visual_spatial_memory: 'memory',
   digit_span: 'memory',
   pictogram: 'memory',
+  pictogram_protocol: 'memory',
   concept_comparison: 'thinking',
+  exclusion: 'thinking',
 };
 
 /** Текстовые подсказки к показателям (осторожные, не диагноз) */

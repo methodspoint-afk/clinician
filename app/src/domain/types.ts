@@ -81,6 +81,28 @@ export const METHOD_DOMAIN_LABELS: Record<MethodDomain, string> = {
 
 export const METHOD_DOMAIN_ORDER: MethodDomain[] = ['attention', 'memory', 'thinking', 'other'];
 
+// ---------- Качественные пробы (протокол ответов) ----------
+// Числовые нормы неприменимы (ТЗ, раздел 7): методика задаёт колонки протокола,
+// специалист вносит строки. Система не выдаёт «отклонение N σ» и не подсказывает
+// квалификацию — цель на этом этапе только накопить базу ответов.
+
+export type QualFieldType = 'text' | 'choice';
+
+export interface QualFieldDef {
+  id: string;
+  label: string;
+  type: QualFieldType;
+  /** Варианты для type='choice' */
+  options?: string[];
+  placeholder?: string;
+}
+
+export interface QualitativeConfig {
+  /** Название единицы протокола (напр. «Задание», «Слово-стимул») */
+  itemLabel: string;
+  fields: QualFieldDef[];
+}
+
 export interface MethodConfig {
   measures: MeasureDef[];
   derived: DerivedDef[];
@@ -88,6 +110,8 @@ export interface MethodConfig {
   compareMeasures?: { id: string; higherIsWorse: boolean }[];
   gate: MethodGateConfig;
   domain?: MethodDomain;
+  /** Конфигурация протокола для качественных методик (measureType='qualitative') */
+  qualitative?: QualitativeConfig;
 }
 
 export interface Method {
@@ -235,6 +259,8 @@ export interface TestResult {
   methodId: string;
   rawMeasures: Record<string, number>;
   derived: Record<string, number>;
+  /** Строки протокола качественной пробы (по полям QualitativeConfig.fields) */
+  qualitativeRows?: Record<string, string>[];
   interpretation?: string;
   shareConsent: boolean;
   createdBy: string;

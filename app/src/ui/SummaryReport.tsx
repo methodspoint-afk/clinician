@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store';
 import { applicationsRepo, resultsRepo } from '../db/repositories';
 import { metricLabel } from '../domain/formulas/derive';
+import { QualitativeProtocol } from './QualitativeProtocol';
 import { METHOD_DOMAIN_FALLBACK } from '../domain/seedMethods';
 import {
   EDUCATION_LABELS,
@@ -87,7 +88,8 @@ export function SummaryReport({ code }: { code: string }) {
   const byMethod = new Map<string, TestResult[]>();
   for (const r of results) byMethod.set(r.methodId, [...(byMethod.get(r.methodId) ?? []), r]);
   const repeated = [...byMethod.entries()]
-    .filter(([, list]) => list.length >= 2)
+    // динамика — только по количественным методикам (у качественных нет числовых показателей)
+    .filter(([methodId, list]) => list.length >= 2 && methodOf(methodId)?.measureType !== 'qualitative')
     .map(([methodId, list]) => ({
       methodId,
       // от ранних к поздним
@@ -118,24 +120,28 @@ export function SummaryReport({ code }: { code: string }) {
       <div key={r.resultId} className="card">
         <strong>{methodName(r.methodId)}</strong>{' '}
         <span className="muted">({new Date(r.createdAt).toLocaleDateString('ru-RU')})</span>
-        <table style={{ marginTop: 8 }}>
-          <thead>
-            <tr>
-              <th>Показатель</th>
-              <th>Результат</th>
-              <th>Отклонение от нормы</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(apps[r.resultId] ?? []).map((a) => (
-              <tr key={a.applicationId}>
-                <td>{label(r.methodId, a.metric)}</td>
-                <td>{a.rawValue}</td>
-                <td>{a.computedDeviation.text}{a.isOverride ? ' (норма выбрана вручную)' : ''}</td>
+        {r.qualitativeRows ? (
+          <QualitativeProtocol config={methodOf(r.methodId)?.config.qualitative} rows={r.qualitativeRows} />
+        ) : (
+          <table style={{ marginTop: 8 }}>
+            <thead>
+              <tr>
+                <th>Показатель</th>
+                <th>Результат</th>
+                <th>Отклонение от нормы</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {(apps[r.resultId] ?? []).map((a) => (
+                <tr key={a.applicationId}>
+                  <td>{label(r.methodId, a.metric)}</td>
+                  <td>{a.rawValue}</td>
+                  <td>{a.computedDeviation.text}{a.isOverride ? ' (норма выбрана вручную)' : ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
         {r.interpretation && (
           <p className="muted">Комментарий специалиста: {r.interpretation}</p>
         )}

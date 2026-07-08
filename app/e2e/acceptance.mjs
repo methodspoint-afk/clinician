@@ -160,6 +160,22 @@ await page.getByText(/Сводный отчёт — PSY/).waitFor();
 await shot('10-report');
 console.log('OK: сводный отчёт открыт');
 
+// --- 7b. Качественная проба: «Исключение лишнего» (протокол, без норм) ---
+step('Качественная проба: Исключение лишнего');
+await page.getByRole('button', { name: 'Испытуемые' }).click();
+await page.getByText(/PSY-\d{4}-0001/).first().click();
+await page.getByRole('button', { name: 'Новое обследование' }).click();
+await page.getByText('Исключение лишнего (4-й лишний)').click();
+await page.getByLabel('Набор (4 предмета/слова)').fill('стол, стул, кровать, чайник');
+await page.getByLabel('Что исключил испытуемый').fill('чайник');
+await page.getByLabel('Пояснение испытуемого').fill('остальное — мебель');
+await page.locator('label.field:has(> span:text-is("Квалификация обобщения")) select').selectOption('по существенному признаку');
+await page.getByRole('button', { name: 'Сохранить обследование' }).click();
+await page.getByText('История обследований').waitFor();
+const qualBody = await page.locator('body').textContent();
+console.log('OK: качественный протокол сохранён и виден:', qualBody.includes('чайник'));
+await shot('11-qualitative');
+
 // --- 8. Persistence: перезагрузка страницы ---
 step('Probe: перезагрузка — данные сохраняются (localStorage/SQLite)');
 await page.reload();
