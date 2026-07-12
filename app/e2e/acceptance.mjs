@@ -176,6 +176,18 @@ const qualBody = await page.locator('body').textContent();
 console.log('OK: качественный протокол сохранён и виден:', qualBody.includes('чайник'));
 await shot('11-qualitative');
 
+// --- 7c. Синхронизация (этап С0): экспорт каталога норм файлом ---
+step('Синхронизация: экспорт каталога норм');
+await page.getByRole('button', { name: 'Синхронизация' }).click();
+await page.getByText('Синхронизация (обмен файлами)').waitFor();
+const [dl] = await Promise.all([
+  page.waitForEvent('download'),
+  page.getByRole('button', { name: 'Выгрузить каталог норм' }).click(),
+]);
+console.log('OK: каталог норм выгружен файлом:', dl.suggestedFilename());
+await page.getByText(/Экспортировано норм/).waitFor();
+await shot('12-sync');
+
 // --- 8. Persistence: перезагрузка страницы ---
 step('Probe: перезагрузка — данные сохраняются (localStorage/SQLite)');
 await page.reload();

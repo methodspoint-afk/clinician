@@ -366,32 +366,47 @@ export const resultsRepo = {
   },
 
   async listForSubject(db: SqlDatabase, subjectCode: string): Promise<TestResult[]> {
-    const rows = await db.select<{
-      result_id: string;
-      subject_code: string;
-      method_id: string;
-      raw_measures: string;
-      derived: string;
-      qualitative: string | null;
-      interpretation: string | null;
-      share_consent: number;
-      created_by: string;
-      created_at: string;
-    }>('SELECT * FROM test_results WHERE subject_code = ? ORDER BY created_at DESC', [subjectCode]);
-    return rows.map((r) => ({
-      resultId: r.result_id,
-      subjectCode: r.subject_code,
-      methodId: r.method_id,
-      rawMeasures: JSON.parse(r.raw_measures),
-      derived: JSON.parse(r.derived),
-      qualitativeRows: r.qualitative ? JSON.parse(r.qualitative) : undefined,
-      interpretation: r.interpretation ?? undefined,
-      shareConsent: !!r.share_consent,
-      createdBy: r.created_by,
-      createdAt: r.created_at,
-    }));
+    const rows = await db.select<TestResultRow>(
+      'SELECT * FROM test_results WHERE subject_code = ? ORDER BY created_at DESC',
+      [subjectCode],
+    );
+    return rows.map(testResultFromRow);
+  },
+
+  /** Все результаты (для экспорта слепков; owner-функция) */
+  async listAll(db: SqlDatabase): Promise<TestResult[]> {
+    const rows = await db.select<TestResultRow>('SELECT * FROM test_results ORDER BY created_at DESC');
+    return rows.map(testResultFromRow);
   },
 };
+
+interface TestResultRow {
+  result_id: string;
+  subject_code: string;
+  method_id: string;
+  raw_measures: string;
+  derived: string;
+  qualitative: string | null;
+  interpretation: string | null;
+  share_consent: number;
+  created_by: string;
+  created_at: string;
+}
+
+function testResultFromRow(r: TestResultRow): TestResult {
+  return {
+    resultId: r.result_id,
+    subjectCode: r.subject_code,
+    methodId: r.method_id,
+    rawMeasures: JSON.parse(r.raw_measures),
+    derived: JSON.parse(r.derived),
+    qualitativeRows: r.qualitative ? JSON.parse(r.qualitative) : undefined,
+    interpretation: r.interpretation ?? undefined,
+    shareConsent: !!r.share_consent,
+    createdBy: r.created_by,
+    createdAt: r.created_at,
+  };
+}
 
 export const applicationsRepo = {
   async create(

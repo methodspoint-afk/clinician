@@ -12,6 +12,7 @@ export type Route =
   | { name: 'report'; code: string }
   | { name: 'norms' }
   | { name: 'methods' }
+  | { name: 'sync' }
   | { name: 'settings' };
 
 interface AppState {
