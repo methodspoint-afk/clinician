@@ -153,6 +153,29 @@ export function SyncScreen() {
           <p className="muted">…и ещё {preview.length - 20} точек в файле.</p>
         )}
       </div>
+
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>Мониторинг публикаций (Контур A)</h3>
+        <p className="muted">
+          Новые исследования с нормами отслеживаются по утверждённому реестру источников:
+          автоматический прогон — раз в квартал (плюс горячие алерты по важным событиям),
+          результаты — в журнале мониторинга и квартальном дайджесте. Найденные нормы попадают
+          в базу только как черновики и только после валидации специалистом.
+        </p>
+        <div className="row">
+          <a
+            href="https://github.com/methodspoint-afk/clinician/tree/claude/gifted-thompson-dsmsv5/clinician-os/research"
+            target="_blank"
+            rel="noreferrer"
+          >
+            <button className="secondary" type="button">Проверить новые публикации (журнал мониторинга)</button>
+          </a>
+        </div>
+        <p className="muted" style={{ marginBottom: 0 }}>
+          Внеплановый прогон по конкретной методике можно запросить у владельца проекта.
+          Проверка нажатием прямо из приложения появится на серверном этапе.
+        </p>
+      </div>
     </div>
   );
 }
