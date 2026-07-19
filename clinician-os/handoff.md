@@ -129,9 +129,19 @@ shared-base-architecture) → С1 (сервер) → С2 (нормы по диа
 
 ## В РАБОТЕ (незавершённые задачи)
 
-_Сейчас нет: последняя задача (этап С0) завершена и запушена. Здесь появляется
-блок «В РАБОТЕ: задача, план, файлы, критерий готовности», как только берусь за
-следующую задачу разработки._
+**Этап С1 — серверный MVP (старт: июль 2026).** Бюджет-вариант A подтверждён
+владельцем (`server-budget-options.md`). План: новый пакет `server/` —
+Fastify + SQLite (better-sqlite3), эндпоинты по `shared-base-architecture.md`
+§5: GET /health, GET /norms (публичный каталог validated+active в формате
+clinician-norm-catalog-1), POST /norms и PATCH /norms/:id/:version (админ),
+POST /submissions (формат clinician-submissions-1, токен специалиста),
+GET /aggregates (админ, ячейки n≥30). Аутентификация — bearer-токены без ПДн
+(инвайт), выпуск токенов — CLI-скриптом. Форматы совпадают с
+`app/src/domain/sync.ts` (С0). Критерий готовности: юнит-тесты API зелёные.
+Файлы: server/package.json, server/src/{db,app,index,create-token}.js,
+server/test/api.test.js. Примечание: SQLite вместо Postgres — осознанно для
+варианта A (одна машина, бэкап = файл); переезд на Postgres — на этапе B,
+слой хранения изолирован.
 
 ## Промпт восстановления после обрыва сессии (скопировать)
 
