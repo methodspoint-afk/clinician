@@ -1,9 +1,51 @@
 // Сквозной приёмочный сценарий из development-prompt.md, раздел 9
 import { chromium } from 'playwright-core';
+import { spawn, execFileSync } from 'child_process';
 
 const SHOT_DIR = process.env.SHOT_DIR ?? 'e2e/shots';
-import { mkdirSync } from 'fs';
+import { mkdirSync, rmSync } from 'fs';
 mkdirSync(SHOT_DIR, { recursive: true });
+
+// --- Живой сервер общей базы (этап С1) для проверки HTTP-синхронизации ---
+const SRV_PORT = 8788;
+const SRV_DB = '/tmp/e2e-clinician-server.db';
+rmSync(SRV_DB, { force: true });
+rmSync(SRV_DB + '-wal', { force: true });
+const tokenOut = execFileSync('node', ['../server/src/create-token.js', 'admin', 'e2e-admin'], {
+  env: { ...process.env, DB_PATH: SRV_DB },
+  encoding: 'utf8',
+});
+const ADMIN_TOKEN = tokenOut.split('\n').find((l) => l.startsWith('adm_'));
+const srv = spawn('node', ['../server/src/index.js'], {
+  env: { ...process.env, PORT: String(SRV_PORT), DB_PATH: SRV_DB },
+  stdio: 'ignore',
+});
+srv.unref(); // не держать event loop скрипта после E2E DONE
+process.on('exit', () => srv.kill());
+for (let i = 0; i < 50; i++) {
+  try {
+    const r = await fetch(`http://127.0.0.1:${SRV_PORT}/health`);
+    if (r.ok) break;
+  } catch { /* ещё поднимается */ }
+  await new Promise((res) => setTimeout(res, 100));
+}
+// заносим на сервер валидированную норму, которую UI потом скачает
+await fetch(`http://127.0.0.1:${SRV_PORT}/norms`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', authorization: `Bearer ${ADMIN_TOKEN}` },
+  body: JSON.stringify({
+    norms: [{
+      normId: 'srv_norm_1', version: 1, sourceRef: 'СЕРВЕРНАЯ НОРМА (e2e)',
+      sourceType: 'methodical_guide', validationStatus: 'validated', active: true,
+      methodId: 'ten_words', metric: 'delayed', procedureMatch: 'full',
+      ageMin: 18, ageMax: 45, educationLevel: 'not_stratified', language: 'ru',
+      clinicalStatus: 'healthy', cellN: 120, statForm: 'mean_sd', mean: 8, sd: 1.5,
+      isSkewed: false, higherIsWorse: false, dataCollectionYear: 2020,
+      stratifiedBy: ['age'], flags: [], appliedCount: 0,
+    }],
+  }),
+});
+console.log('OK: тестовый сервер С1 поднят на', SRV_PORT, 'с одной валидированной нормой');
 
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium',
@@ -50,6 +92,7 @@ step('Создание черновика нормы (не должен попа
 await page.getByRole('button', { name: '+ Новая норма' }).click();
 await page.getByLabel('Библиография / DOI / выходные данные *').fill('ЧЕРНОВИК-ИСТОЧНИК (не должен предлагаться)');
 await page.locator('label.field:has(> span:text-is("Методика")) select').selectOption('schulte');
+await page.getByLabel('Год публикации').fill('2019'); // год обязателен (подсветка красным)
 await page.getByLabel('Возраст до *').fill('45');
 await page.getByLabel('Размер этой ячейки (n) *').fill('50');
 await page.getByLabel('Среднее (M)').fill('40');
@@ -94,17 +137,17 @@ const draftOffered = (await page.locator('.norm-option:not(details .norm-option)
 console.log('OK: дефолт предложен; черновик среди кандидатов:', draftOffered, '(должно быть false)');
 console.log('  z-текст присутствует:', body.includes('z = '));
 await shot('04-norm-picker');
-// выбираем дефолт по всем трём показателям (ЭР, ВР, ПУ) — по валидированной норме есть только ЭР;
-// для ВР и ПУ норм нет → «Валидной нормы нет» → сохранить без сравнения
-const pickers = page.locator('.card', { hasText: 'значение' });
-await page.locator('.norm-option', { hasText: 'Пушкина' }).first().click();
+// По каждому показателю: если есть рекомендованные нормы (в т.ч. стартовая база) —
+// выбираем дефолт; если норм нет — сохраняем без сравнения.
+const metricCards = page.locator('.card', { has: page.getByText('Сохранить без сравнения с нормой') });
 const noNorm = await page.getByText('Валидной нормы нет').count();
-console.log('OK: для показателей без норм честно показано «Валидной нормы нет»:', noNorm, 'раз(а)');
-const skips = page.getByText('Сохранить без сравнения с нормой');
-const skipCount = await skips.count();
-for (let k = 0; k < skipCount; k++) {
-  const cardText = await skips.nth(k).locator('xpath=ancestor::div[contains(@class,"card")]').textContent();
-  if (cardText.includes('Валидной нормы нет')) await skips.nth(k).click();
+console.log('OK: показателей без валидной нормы:', noNorm);
+const mc = await metricCards.count();
+for (let k = 0; k < mc; k++) {
+  const card = metricCards.nth(k);
+  const ranked = card.locator(':scope > .norm-option').first();
+  if (await ranked.count()) await ranked.click();
+  else await card.getByText('Сохранить без сравнения с нормой').click();
 }
 await shot('05-before-save');
 await page.getByRole('button', { name: 'Сохранить обследование' }).click();
@@ -130,9 +173,10 @@ await page.getByRole('button', { name: 'К подбору норм →' }).click
 await page.getByText('Валидной нормы нет').first().waitFor();
 console.log('OK: для 83 лет — «Валидной нормы нет», ближайшая не подставлена');
 await shot('07-no-valid-norm');
-// override
-await page.locator('details.rejected summary').first().click();
-const rejText = await page.locator('details.rejected').first().textContent();
+// override; при «нормы нет» список ближайших раскрыт автоматически — раскрываем только если закрыт
+const rejDetails = page.locator('details.rejected').first();
+if (!(await rejDetails.evaluate((el) => el.open))) await rejDetails.locator('summary').click();
+const rejText = await rejDetails.textContent();
 console.log('OK: причина отсева видна:', rejText.includes('вне диапазона'));
 await page.getByRole('button', { name: 'Применить несмотря на отсев…' }).first().click();
 await page.getByLabel(/Обоснование применения отсеянной нормы/).fill('Единственная доступная норма; клинически сопоставимая выборка');
@@ -157,6 +201,46 @@ await page.getByRole('button', { name: 'Сводный отчёт' }).click();
 await page.getByText(/Сводный отчёт — PSY/).waitFor();
 await shot('10-report');
 console.log('OK: сводный отчёт открыт');
+
+// --- 7b. Качественная проба: «Исключение лишнего» (протокол, без норм) ---
+step('Качественная проба: Исключение лишнего');
+await page.getByRole('button', { name: 'Испытуемые' }).click();
+await page.getByText(/PSY-\d{4}-0001/).first().click();
+await page.getByRole('button', { name: 'Новое обследование' }).click();
+await page.getByText('Исключение лишнего (4-й лишний)').click();
+await page.getByLabel('Набор (4 предмета/слова)').fill('стол, стул, кровать, чайник');
+await page.getByLabel('Что исключил испытуемый').fill('чайник');
+await page.getByLabel('Пояснение испытуемого').fill('остальное — мебель');
+await page.locator('label.field:has(> span:text-is("Квалификация обобщения")) select').selectOption('по существенному признаку');
+await page.getByRole('button', { name: 'Сохранить обследование' }).click();
+await page.getByText('История обследований').waitFor();
+const qualBody = await page.locator('body').textContent();
+console.log('OK: качественный протокол сохранён и виден:', qualBody.includes('чайник'));
+await shot('11-qualitative');
+
+// --- 7c. Синхронизация (этап С0): экспорт каталога норм файлом ---
+step('Синхронизация: экспорт каталога норм');
+await page.getByRole('button', { name: 'Синхронизация' }).click();
+await page.getByText('Синхронизация (обмен файлами)').waitFor();
+const [dl] = await Promise.all([
+  page.waitForEvent('download'),
+  page.getByRole('button', { name: 'Выгрузить каталог норм' }).click(),
+]);
+console.log('OK: каталог норм выгружен файлом:', dl.suggestedFilename());
+await page.getByText(/Экспортировано норм/).waitFor();
+
+// HTTP-режим (этап С1): скачиваем норму с живого сервера через UI (проверяет и CORS)
+step('Синхронизация: скачивание норм с сервера по HTTP');
+await page.getByLabel('Адрес сервера').fill(`http://127.0.0.1:${SRV_PORT}`);
+await page.getByLabel('Токен доступа').fill(ADMIN_TOKEN);
+await page.getByRole('button', { name: 'Сохранить настройки' }).click();
+await page.getByRole('button', { name: 'Скачать нормы с сервера' }).click();
+await page.getByText(/Сервер: импортировано норм 1/).waitFor();
+console.log('OK: норма скачана с сервера по HTTP и импортирована в локальную базу');
+await page.getByRole('button', { name: 'Нормы', exact: true }).click();
+await page.getByText('СЕРВЕРНАЯ НОРМА (e2e)').waitFor();
+console.log('OK: серверная норма видна в базе норм');
+await shot('12-sync');
 
 // --- 8. Persistence: перезагрузка страницы ---
 step('Probe: перезагрузка — данные сохраняются (localStorage/SQLite)');

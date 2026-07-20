@@ -55,20 +55,54 @@ beforeEach(async () => {
 });
 
 describe('Миграции и seed', () => {
-  it('4 предустановленные методики на месте', async () => {
+  it('9 предустановленных методик на месте (в т.ч. 2 качественные)', async () => {
     const methods = await methodsRepo.list(db);
     expect(methods.map((m) => m.methodId).sort()).toEqual([
+      'concept_comparison',
       'correction_test',
+      'digit_span',
+      'exclusion',
+      'pictogram',
+      'pictogram_protocol',
       'schulte',
       'ten_words',
       'visual_spatial_memory',
     ]);
+    // качественные методики несут конфигурацию протокола
+    const exclusion = methods.find((m) => m.methodId === 'exclusion')!;
+    expect(exclusion.measureType).toBe('qualitative');
+    expect(exclusion.config.qualitative?.fields.length).toBeGreaterThan(0);
   });
 
-  it('повторная миграция не ломает БД', async () => {
+  it('повторная миграция и досев не ломают БД', async () => {
     await migrate(db);
+    await methodsRepo.seedIfEmpty(db);
     const methods = await methodsRepo.list(db);
-    expect(methods).toHaveLength(4);
+    expect(methods).toHaveLength(9);
+  });
+
+  it('досев добавляет отсутствующие методики, не трогая существующие', async () => {
+    // Имитация старой БД: специалист переименовал Шульте, новых методик ещё нет
+    await db.run("UPDATE methods SET name = 'Шульте (правка специалиста)' WHERE method_id = 'schulte'");
+    await db.run("DELETE FROM methods WHERE method_id IN ('digit_span','pictogram','exclusion')");
+    await methodsRepo.seedIfEmpty(db);
+    const methods = await methodsRepo.list(db);
+    expect(methods).toHaveLength(9);
+    expect(methods.find((m) => m.methodId === 'schulte')!.name).toBe('Шульте (правка специалиста)');
+  });
+
+  it('v2: препараты и комментарий сохраняются в карточке испытуемого', async () => {
+    const s = await subjectsRepo.create(db, {
+      age: 34,
+      education: 'higher',
+      medications: 'галоперидол 5 мг/сут',
+      comment: 'билингв',
+      createdBy: owner.userId,
+    });
+    const [loaded] = await subjectsRepo.listVisible(db, owner);
+    expect(loaded.subjectCode).toBe(s.subjectCode);
+    expect(loaded.medications).toBe('галоперидол 5 мг/сут');
+    expect(loaded.comment).toBe('билингв');
   });
 });
 
@@ -118,6 +152,25 @@ describe('Нормы', () => {
     expect(candidates).toHaveLength(1);
     expect(candidates[0].version).toBe(2);
   });
+
+  it('стартовая база норм (бэкап клинициста) досевается и валидна для подбора', async () => {
+    await normsRepo.seedIfEmpty(db);
+    const all = await normsRepo.listAll(db);
+    expect(all).toHaveLength(7);
+    // все валидированы и активны → сразу участвуют в подборе
+    expect(all.every((n) => n.validationStatus === 'validated' && n.active)).toBe(true);
+    // Шульте: ЭР, ПУ, ВР
+    const schulte = await normsRepo.candidatesForMethod(db, 'schulte');
+    expect(schulte.map((n) => n.metric).sort()).toEqual(['ER', 'PU', 'VR']);
+    // балл пересчитан по актуальной схеме (не взят из бэкапа)
+    expect(all.every((n) => (n.qualityScore ?? 0) > 0)).toBe(true);
+  });
+
+  it('повторный досев норм идемпотентен (по normId)', async () => {
+    await normsRepo.seedIfEmpty(db);
+    await normsRepo.seedIfEmpty(db);
+    expect(await normsRepo.listAll(db)).toHaveLength(7);
+  });
 });
 
 describe('Результаты и лог применения', () => {
@@ -160,6 +213,34 @@ describe('Результаты и лог применения', () => {
     expect(apps[0].patientDemographics.age).toBe(34);
     const [updated] = await normsRepo.listAll(db);
     expect(updated.appliedCount).toBe(1);
+  });
+
+  it('качественная проба: протокол ответов сохраняется и читается, без норм', async () => {
+    const subject = await subjectsRepo.create(db, {
+      age: 34,
+      education: 'higher',
+      createdBy: researcher.userId,
+    });
+    const rows = [
+      { stimulus: 'стол, стул, кровать, чайник', excluded: 'чайник', explanation: 'остальное мебель', qualification: 'по существенному признаку', comment: '' },
+      { stimulus: 'дождь, снег, град, ведро', excluded: 'ведро', explanation: 'в ведро собирают воду', qualification: 'конкретно-ситуативное', comment: 'снижение обобщения' },
+    ];
+    const result = await resultsRepo.create(db, {
+      subjectCode: subject.subjectCode,
+      methodId: 'exclusion',
+      rawMeasures: {},
+      derived: {},
+      qualitativeRows: rows,
+      interpretation: 'опора на конкретные связи',
+      shareConsent: false,
+      createdBy: researcher.userId,
+    });
+    const loaded = await resultsRepo.listForSubject(db, subject.subjectCode);
+    const r = loaded.find((x) => x.resultId === result.resultId)!;
+    expect(r.qualitativeRows).toHaveLength(2);
+    expect(r.qualitativeRows![1].qualification).toBe('конкретно-ситуативное');
+    // качественная проба не создаёт применений нормы
+    expect(await applicationsRepo.listForResult(db, result.resultId)).toHaveLength(0);
   });
 });
 

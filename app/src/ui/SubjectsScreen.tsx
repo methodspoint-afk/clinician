@@ -11,6 +11,8 @@ export function SubjectsScreen() {
   const [education, setEducation] = useState<Education>('higher');
   const [sex, setSex] = useState<'' | Sex>('');
   const [diagnosis, setDiagnosis] = useState('');
+  const [medications, setMedications] = useState('');
+  const [comment, setComment] = useState('');
 
   useEffect(() => {
     refreshSubjects();
@@ -25,6 +27,8 @@ export function SubjectsScreen() {
       education,
       sex: sex || undefined,
       diagnosis: diagnosis.trim() || undefined,
+      medications: medications.trim() || undefined,
+      comment: comment.trim() || undefined,
       createdBy: user.userId,
     });
     await persist();
@@ -32,6 +36,8 @@ export function SubjectsScreen() {
     setShowForm(false);
     setAge('');
     setDiagnosis('');
+    setMedications('');
+    setComment('');
     go({ name: 'subject', code: subject.subjectCode });
   }
 
@@ -80,6 +86,18 @@ export function SubjectsScreen() {
           <label className="field">
             <span>Диагноз (необязательно)</span>
             <input value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>Принимаемые препараты (необязательно; учитываются при интерпретации)</span>
+            <input
+              value={medications}
+              onChange={(e) => setMedications(e.target.value)}
+              placeholder="Например: галоперидол 5 мг/сут"
+            />
+          </label>
+          <label className="field">
+            <span>Комментарий специалиста (необязательно)</span>
+            <textarea rows={2} value={comment} onChange={(e) => setComment(e.target.value)} />
           </label>
           <div className="row">
             <button className="primary" onClick={create} disabled={!age}>

@@ -110,6 +110,26 @@ describe('Корректурная проба: t_total = 480, t1 = 220, m1 = 4, 
   });
 });
 
+describe('Методики итерации 1', () => {
+  it('сравнение понятий: 20 пар, 14 адекватных → 70 %', () => {
+    const config = SEED_METHODS.find((m) => m.methodId === 'concept_comparison')!.config;
+    const { values, errors } = computeDerived(config, { pairs_total: 20, adequate: 14, incomparable_ok: 3 });
+    expect(errors).toHaveLength(0);
+    expect(values.adequate_pct).toBe(70);
+  });
+
+  it('пиктограммы: 12 предъявлено, 9 воспроизведено → 75 %', () => {
+    const config = SEED_METHODS.find((m) => m.methodId === 'pictogram')!.config;
+    const { values } = computeDerived(config, { words_presented: 12, words_recalled: 9 });
+    expect(values.recall_pct).toBe(75);
+  });
+
+  it('воспроизведение чисел: оба показателя сравниваются с нормой', () => {
+    const method = SEED_METHODS.find((m) => m.methodId === 'digit_span')!;
+    expect(method.config.compareMeasures?.map((c) => c.id)).toEqual(['forward', 'backward']);
+  });
+});
+
 describe('Расчёт отклонения', () => {
   it('z-оценка: 62 с при M=50, SD=8, higher_is_worse → z = +1.5, ухудшение', () => {
     const dev = computeDeviation(62, makeNorm());
@@ -155,17 +175,31 @@ describe('Расчёт отклонения', () => {
   });
 });
 
-describe('Score: пример из промпта', () => {
-  it('cell_n=120 + стратификация age/education, mean+sd скошено, процедура полная, сбор 2018, диссертация → 87, надёжная', () => {
+describe('Score (веса итерации 1: D=5, E=20 — калибровка по обратной связи клинициста)', () => {
+  it('cell_n=120 + стратификация age/education, mean+sd скошено, процедура полная, сбор 2018, диссертация → 84, надёжная', () => {
     const q = computeQuality(makeNorm({ isSkewed: true }), DEFAULT_SCORING_CONFIG, YEAR);
     expect(q.a).toBe(30);
     expect(q.b).toBe(15);
     expect(q.c).toBe(20);
-    expect(q.d).toBe(15);
-    expect(q.e).toBe(7);
-    expect(q.total).toBe(87);
+    expect(q.d).toBe(5);
+    expect(q.e).toBe(14);
+    expect(q.total).toBe(84);
     expect(q.tier).toBe('reliable');
     expect(q.flags).toContain('skewed_distribution');
+  });
+
+  it('статус источника весит больше свежести: рецензируемая статья 1990-х обгоняет методичку 2024 года', () => {
+    const oldArticle = computeQuality(
+      makeNorm({ sourceType: 'indexed_article', dataCollectionYear: 1998 }),
+      DEFAULT_SCORING_CONFIG,
+      YEAR,
+    );
+    const freshGuide = computeQuality(
+      makeNorm({ sourceType: 'methodical_guide', dataCollectionYear: 2024 }),
+      DEFAULT_SCORING_CONFIG,
+      YEAR,
+    );
+    expect(oldArticle.total).toBeGreaterThan(freshGuide.total);
   });
 
   it('перцентильные таблицы дают больше, чем скошенное mean+sd', () => {
@@ -183,13 +217,13 @@ describe('Score: пример из промпта', () => {
       DEFAULT_SCORING_CONFIG,
       YEAR,
     );
-    expect(q.d).toBe(7); // 26 лет назад
+    expect(q.d).toBe(2); // 26 лет назад
     expect(q.flags).toContain('year_is_publication');
   });
 
   it('данные старше 35 лет → флаг old_data, но норма не обнуляется', () => {
     const q = computeQuality(makeNorm({ dataCollectionYear: 1985 }), DEFAULT_SCORING_CONFIG, YEAR);
-    expect(q.d).toBe(3);
+    expect(q.d).toBe(1);
     expect(q.flags).toContain('old_data');
     expect(q.total).toBeGreaterThan(0);
   });
@@ -204,6 +238,35 @@ describe('Gate', () => {
     expect(edge.passed).toBe(true);
     expect(edge.flags).toContain('edge_of_cell');
     expect(gateNorm(makeSubject({ age: 83 }), makeNorm(), gateCfg).passed).toBe(false);
+  });
+
+  it('внутри 16–60 возраст плавающий: заход за ячейку до 10 лет — pass с флагом age_stretch', () => {
+    // 26 лет против нормы 16–20: «16 и 26 — примерно одна возрастная группа»
+    const r = gateNorm(makeSubject({ age: 26 }), makeNorm({ ageMin: 16, ageMax: 20 }), gateCfg);
+    expect(r.passed).toBe(true);
+    expect(r.flags).toContain('age_stretch');
+  });
+
+  it('заход больше 10 лет внутри 16–60 — fail', () => {
+    const r = gateNorm(makeSubject({ age: 34 }), makeNorm({ ageMin: 45, ageMax: 60 }), gateCfg);
+    expect(r.passed).toBe(false);
+  });
+
+  it('жёсткие рамки: до 16 и после 60 лет допуск не действует', () => {
+    // 15 лет против нормы 16–20 — дети отдельная категория, fail несмотря на 1 год разницы
+    expect(gateNorm(makeSubject({ age: 15 }), makeNorm({ ageMin: 16, ageMax: 20 }), gateCfg).passed).toBe(false);
+    // 62 года против нормы 18–60 — пожилые отдельная категория
+    expect(gateNorm(makeSubject({ age: 62 }), makeNorm({ ageMin: 18, ageMax: 60 }), gateCfg).passed).toBe(false);
+    // но 62 года внутри ячейки нормы 55–75 — pass (норма сама покрывает этот возраст)
+    expect(gateNorm(makeSubject({ age: 62 }), makeNorm({ ageMin: 55, ageMax: 75 }), gateCfg).passed).toBe(true);
+  });
+
+  it('ageStretchYears: 0 отключает допуск (личностные методики)', () => {
+    const r = gateNorm(makeSubject({ age: 26 }), makeNorm({ ageMin: 16, ageMax: 20 }), {
+      ...gateCfg,
+      ageStretchYears: 0,
+    });
+    expect(r.passed).toBe(false);
   });
 
   it('образование: несовпадение — предупреждение (методики MVP), а не отсев', () => {
@@ -270,14 +333,14 @@ describe('selectNorms: сквозной подбор', () => {
       cellN: 150,
       statForm: 'mean_sd',
       dataCollectionYear: 2024,
-    }); // A=30 B=22 C=20 D=15 E=7 = 94
+    }); // A=30 B=22 C=20 D=5 E=14 = 91
     const percSmall = makeNorm({
       normId: 'perc_small',
       cellN: 60,
       statForm: 'percentile_table',
       percentiles: { '50': 48 },
       dataCollectionYear: 2024,
-    }); // A=22 B=25 C=20 D=15 E=7 = 89 → в кластере Δ=5, выигрывает big_cell по A
+    }); // A=22 B=25 C=20 D=5 E=14 = 86 → в кластере Δ=5, выигрывает big_cell по A
     const res = selectNorms(makeSubject(), gateCfg, 'ER', [percSmall, bigCell], { currentYear: YEAR });
     expect(res.defaultNorm!.norm.normId).toBe('big_cell');
   });
@@ -292,7 +355,7 @@ describe('selectNorms: сквозной подбор', () => {
       procedureMatch: 'mismatch',
       dataCollectionYear: 1970,
       sourceType: 'other',
-    }); // A=2 B=2 C=3 D=3 E=3 = 13 < 30
+    }); // A=2 B=2 C=3 D=1 E=6 = 14 < 30
     const res = selectNorms(makeSubject(), gateCfg, 'ER', [bad], { currentYear: YEAR });
     expect(res.status).toBe('no_valid_norm');
     expect(res.rejected[0].reasons[0]).toContain('Непригодная');

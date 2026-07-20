@@ -29,6 +29,16 @@ export function computeDerived(config: MethodConfig, raw: Record<string, number>
   return { values, errors };
 }
 
+/** Человекочитаемое название показателя (замера или производного) по id */
+export function metricLabel(config: MethodConfig | undefined, metricId: string): string {
+  if (!config) return metricId;
+  return (
+    config.derived.find((d) => d.id === metricId)?.label ??
+    config.measures.find((m) => m.id === metricId)?.label ??
+    metricId
+  );
+}
+
 /** Список показателей методики, которые сравниваются с нормой */
 export function comparableMetrics(config: MethodConfig): { id: string; label: string; higherIsWorse: boolean }[] {
   const fromDerived = config.derived

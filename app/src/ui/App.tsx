@@ -6,6 +6,7 @@ import { Examination } from './Examination';
 import { SummaryReport } from './SummaryReport';
 import { NormsScreen } from './NormsScreen';
 import { MethodsScreen } from './MethodsScreen';
+import { SyncScreen } from './SyncScreen';
 import { SettingsScreen } from './SettingsScreen';
 
 export function App() {
@@ -17,6 +18,7 @@ export function App() {
     { label: 'Испытуемые', route: { name: 'subjects' } },
     { label: 'Нормы', route: { name: 'norms' }, ownerOnly: true },
     { label: 'Методики', route: { name: 'methods' }, ownerOnly: true },
+    { label: 'Синхронизация', route: { name: 'sync' }, ownerOnly: true },
     { label: 'Настройки', route: { name: 'settings' }, ownerOnly: true },
   ];
 
@@ -56,6 +58,7 @@ export function App() {
         {route.name === 'report' && <SummaryReport code={route.code} />}
         {route.name === 'norms' && <NormsScreen />}
         {route.name === 'methods' && <MethodsScreen />}
+        {route.name === 'sync' && <SyncScreen />}
         {route.name === 'settings' && <SettingsScreen />}
       </main>
     </div>

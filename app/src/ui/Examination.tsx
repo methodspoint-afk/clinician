@@ -26,11 +26,17 @@ export function Examination({ code }: { code: string }) {
   const [step, setStep] = useState(1);
   const [method, setMethod] = useState<Method | null>(null);
   const [raw, setRaw] = useState<Record<string, string>>({});
+  const [qualRows, setQualRows] = useState<Record<string, string>[]>([]);
   const [candidates, setCandidates] = useState<Norm[]>([]);
   const [choices, setChoices] = useState<Record<string, MetricChoice>>({});
   const [interpretation, setInterpretation] = useState('');
   const [shareConsent, setShareConsent] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const isQual = method?.measureType === 'qualitative';
+  const qualCfg = method?.config.qualitative;
+  // Строки протокола, где заполнено хотя бы одно поле — только они идут в сохранение
+  const filledQualRows = qualRows.filter((r) => Object.values(r).some((v) => v && v.trim()));
 
   useEffect(() => {
     (async () => {
@@ -79,12 +85,20 @@ export function Examination({ code }: { code: string }) {
     const result = await resultsRepo.create(db, {
       subjectCode: subject!.subjectCode,
       methodId: method.methodId,
-      rawMeasures: rawNumbers,
-      derived: derived.values,
+      rawMeasures: isQual ? {} : rawNumbers,
+      derived: isQual ? {} : derived.values,
+      qualitativeRows: isQual ? filledQualRows : undefined,
       interpretation: interpretation.trim() || undefined,
       shareConsent,
       createdBy: user.userId,
     });
+    // Качественная проба: норм и отклонений нет — сохраняем только протокол
+    if (isQual) {
+      await persist();
+      setSaving(false);
+      go({ name: 'subject', code });
+      return;
+    }
     for (const m of metrics) {
       const c = choices[m.id];
       const value = metricValue(m.id);
@@ -123,7 +137,7 @@ export function Examination({ code }: { code: string }) {
       </button>
       <h2 style={{ marginTop: 14 }}>Новое обследование</h2>
       <div className="steps">
-        {['Методика', 'Замеры', 'Нормы и результат'].map((label, i) => (
+        {(isQual ? ['Методика', 'Протокол ответов'] : ['Методика', 'Замеры', 'Нормы и результат']).map((label, i) => (
           <span key={label} className={`step ${step === i + 1 ? 'active' : step > i + 1 ? 'done' : ''}`}>
             {i + 1}. {label}
           </span>
@@ -142,37 +156,136 @@ export function Examination({ code }: { code: string }) {
                   setMethod(m);
                   setRaw({});
                   setChoices({});
+                  setQualRows(m.measureType === 'qualitative' ? [{}] : []);
                   setStep(2);
                 }}
               >
                 <strong>{m.name}</strong>
                 <div className="muted">
-                  Вводится замеров: {m.config.measures.length}; сравнивается с нормой показателей:{' '}
-                  {comparableMetrics(m.config).length}
+                  {m.measureType === 'qualitative'
+                    ? 'Качественная проба: протокол ответов (без числовых норм)'
+                    : `Вводится замеров: ${m.config.measures.length}; сравнивается с нормой показателей: ${comparableMetrics(m.config).length}`}
                 </div>
               </div>
             ))}
         </div>
       )}
 
-      {step === 2 && method && (
+      {step === 2 && method && isQual && qualCfg && (
+        <div>
+          <div className="card">
+            <h3 style={{ marginTop: 0 }}>{method.name} — протокол ответов</h3>
+            <p className="muted">
+              Вносите ответы испытуемого построчно. Система ничего не подсказывает и не оценивает —
+              квалификация полностью за вами; протокол копит базу для будущего анализа.
+            </p>
+            {qualRows.map((row, ri) => (
+              <div key={ri} className="card" style={{ background: 'transparent' }}>
+                <div className="row" style={{ justifyContent: 'space-between' }}>
+                  <strong>
+                    {qualCfg.itemLabel} {ri + 1}
+                  </strong>
+                  {qualRows.length > 1 && (
+                    <button
+                      className="secondary no-print"
+                      onClick={() => setQualRows(qualRows.filter((_, i) => i !== ri))}
+                    >
+                      Удалить
+                    </button>
+                  )}
+                </div>
+                <div className="grid2">
+                  {qualCfg.fields.map((f) => (
+                    <label key={f.id} className="field">
+                      <span>{f.label}</span>
+                      {f.type === 'choice' ? (
+                        <select
+                          value={row[f.id] ?? ''}
+                          onChange={(e) =>
+                            setQualRows(qualRows.map((r, i) => (i === ri ? { ...r, [f.id]: e.target.value } : r)))
+                          }
+                        >
+                          <option value="">— не выбрано —</option>
+                          {(f.options ?? []).map((o) => (
+                            <option key={o} value={o}>
+                              {o}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          value={row[f.id] ?? ''}
+                          placeholder={f.placeholder}
+                          onChange={(e) =>
+                            setQualRows(qualRows.map((r, i) => (i === ri ? { ...r, [f.id]: e.target.value } : r)))
+                          }
+                        />
+                      )}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <button className="secondary no-print" onClick={() => setQualRows([...qualRows, {}])}>
+              + Добавить {qualCfg.itemLabel.toLowerCase()}
+            </button>
+          </div>
+
+          <div className="card">
+            <label className="field">
+              <span>Общий комментарий специалиста по методике (необязательно)</span>
+              <textarea
+                rows={3}
+                value={interpretation}
+                onChange={(e) => setInterpretation(e.target.value)}
+                placeholder="Например: снижение уровня обобщения, опора на конкретно-ситуативные связи"
+              />
+            </label>
+            {filledQualRows.length === 0 && (
+              <div className="missing-hint">Внесите хотя бы одну заполненную строку протокола.</div>
+            )}
+            <div className="row" style={{ marginTop: 14 }}>
+              <button className="secondary" onClick={() => setStep(1)}>
+                ← Назад
+              </button>
+              <button className="primary" disabled={filledQualRows.length === 0 || saving} onClick={save}>
+                Сохранить обследование
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {step === 2 && method && !isQual && (
         <div className="card">
           <h3 style={{ marginTop: 0 }}>{method.name} — ввод замеров</h3>
           <div className="grid3">
-            {method.config.measures.map((m) => (
-              <label key={m.id} className="field">
-                <span>{m.label} *</span>
-                <input
-                  type="number"
-                  step="any"
-                  min={m.min}
-                  max={m.max}
-                  value={raw[m.id] ?? ''}
-                  onChange={(e) => setRaw({ ...raw, [m.id]: e.target.value })}
-                />
-              </label>
-            ))}
+            {method.config.measures.map((m) => {
+              const v = Number(raw[m.id]);
+              const filled =
+                raw[m.id] !== undefined &&
+                raw[m.id] !== '' &&
+                Number.isFinite(v) &&
+                !(m.min !== undefined && v < m.min) &&
+                !(m.max !== undefined && v > m.max);
+              return (
+                <label key={m.id} className={`field${filled ? '' : ' missing'}`}>
+                  <span>{m.label} *</span>
+                  <input
+                    type="number"
+                    step="any"
+                    min={m.min}
+                    max={m.max}
+                    value={raw[m.id] ?? ''}
+                    onChange={(e) => setRaw({ ...raw, [m.id]: e.target.value })}
+                  />
+                </label>
+              );
+            })}
           </div>
+          {!rawValid && (
+            <div className="missing-hint">Заполните все замеры (поля, помеченные красным).</div>
+          )}
 
           {rawValid && (
             <>
@@ -226,6 +339,7 @@ export function Examination({ code }: { code: string }) {
                 key={m.id}
                 label={`${m.label ?? m.id}: значение ${Math.round(value * 1000) / 1000}`}
                 value={value}
+                subjectAge={subject.age}
                 selection={selections[m.id]}
                 choice={choices[m.id] ?? { skipped: false }}
                 onChange={(c) => setChoices({ ...choices, [m.id]: c })}
@@ -235,12 +349,15 @@ export function Examination({ code }: { code: string }) {
 
           <div className="card">
             <label className="field">
-              <span>Осторожная интерпретация (необязательно; гипотеза, не диагноз)</span>
+              <span>
+                Комментарий специалиста по методике (необязательно; войдёт в протокол и отчёт —
+                например, слова испытуемого во время выполнения)
+              </span>
               <textarea
                 rows={3}
                 value={interpretation}
                 onChange={(e) => setInterpretation(e.target.value)}
-                placeholder="Например: показатель темпа сенсомоторных реакций снижен, что может указывать на…"
+                placeholder="Например: выраженная истощаемость к 4-й таблице; со слов испытуемого — «цифры расплываются»"
               />
             </label>
             <label className="row" style={{ fontSize: 14 }}>
@@ -302,12 +419,14 @@ function NormCard({ r, value }: { r: RankedNorm; value: number }) {
 function MetricNormPicker({
   label,
   value,
+  subjectAge,
   selection,
   choice,
   onChange,
 }: {
   label: string;
   value: number;
+  subjectAge: number;
   selection?: SelectionResult;
   choice: MetricChoice;
   onChange: (c: MetricChoice) => void;
@@ -317,14 +436,25 @@ function MetricNormPicker({
 
   if (!selection) return null;
 
+  const noValid = selection.status === 'no_valid_norm';
+  // При «нормы нет» показываем отсеянные сразу, ближайшие по возрасту — первыми:
+  // клиницист видит их характеристики и решает — применить осознанно или без сравнения
+  const ageDistance = (n: Norm) =>
+    subjectAge < n.ageMin ? n.ageMin - subjectAge : subjectAge > n.ageMax ? subjectAge - n.ageMax : 0;
+  const rejectedShown = noValid
+    ? [...selection.rejected].sort((a, b) => ageDistance(a.norm) - ageDistance(b.norm))
+    : selection.rejected;
+
   return (
     <div className="card">
       <h3 style={{ marginTop: 0 }}>{label}</h3>
 
-      {selection.status === 'no_valid_norm' && (
+      {noValid && (
         <div className="warn big">
-          Валидной нормы нет: ни одна норма не подходит под профиль испытуемого. Это легитимный
-          результат — система не подставляет «ближайшую» норму.
+          Валидной нормы нет: ни одна норма не прошла допуск по популяции. Система не подставляет
+          «ближайшую» норму автоматически. Ниже показаны ближайшие нормы с их характеристиками —
+          вы можете применить одну из них осознанно (выбор попадёт в лог) или сохранить показатель
+          без сравнения с нормой.
         </div>
       )}
 
@@ -347,17 +477,25 @@ function MetricNormPicker({
         );
       })}
 
-      {selection.rejected.length > 0 && (
-        <details className="rejected">
-          <summary>Отсеянные нормы ({selection.rejected.length}) — показать</summary>
-          {selection.rejected.map((rej) => {
+      {rejectedShown.length > 0 && (
+        <details className="rejected" open={noValid}>
+          <summary>
+            {noValid
+              ? `Ближайшие нормы, не прошедшие допуск (${rejectedShown.length})`
+              : `Отсеянные нормы (${rejectedShown.length}) — показать`}
+          </summary>
+          {rejectedShown.map((rej) => {
             const key = `${rej.norm.normId}:${rej.norm.version}`;
             const isSelected = choice.selected?.isOverride && choice.selected.norm.normId === rej.norm.normId;
             return (
               <div key={key} className={`norm-option ${isSelected ? 'selected' : ''}`}>
                 <strong>{rej.norm.sourceRef}</strong>{' '}
                 <span className="muted">
-                  (возраст {rej.norm.ageMin}–{rej.norm.ageMax}, n = {rej.norm.cellN})
+                  (возраст {rej.norm.ageMin}–{rej.norm.ageMax}, n = {rej.norm.cellN},{' '}
+                  {STAT_FORM_LABELS[rej.norm.statForm]},{' '}
+                  {rej.norm.dataCollectionYear
+                    ? `сбор ${rej.norm.dataCollectionYear}`
+                    : `публикация ${rej.norm.publicationYear ?? '—'}`})
                 </span>
                 <div className="muted">Причина отсева: {rej.reasons.join('; ')}</div>
                 {isSelected ? (

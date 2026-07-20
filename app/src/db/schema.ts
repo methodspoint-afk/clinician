@@ -110,4 +110,16 @@ export const MIGRATIONS: string[] = [
     value TEXT NOT NULL
   );
   `,
+
+  // v2 — препараты и комментарий специалиста в карточке испытуемого
+  // (итерация 1 по обратной связи клинициста)
+  `
+  ALTER TABLE subjects ADD COLUMN medications TEXT;
+  ALTER TABLE subjects ADD COLUMN comment TEXT;
+  `,
+
+  // v3 — протокол качественных проб (JSON-массив строк) в результате обследования
+  `
+  ALTER TABLE test_results ADD COLUMN qualitative TEXT;
+  `,
 ];

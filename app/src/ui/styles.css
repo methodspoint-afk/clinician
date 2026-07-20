@@ -84,6 +84,14 @@ h3 { margin: 22px 0 10px; font-size: 17px; }
 label.field { display: block; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
 label.field span { display: block; margin-bottom: 4px; }
 
+/* Незаполненное обязательное поле — подсветка красным (запрос клинициста) */
+label.field.missing input, label.field.missing select, label.field.missing textarea {
+  border-color: #c62828;
+  background: #fff6f6;
+}
+label.field.missing > span { color: #c62828; font-weight: 600; }
+.missing-hint { color: #c62828; font-size: 13px; margin-top: 8px; }
+
 input, select, textarea {
   width: 100%;
   padding: 9px 11px;

@@ -15,12 +15,14 @@ export interface ScoringConfig {
   tieBreakerDelta: number;
 }
 
+// Итерация 1 калибровки (июль 2026, обратная связь клинициста):
+// свежесть данных D 15 → 5, формальный статус источника E 10 → 20.
 export const DEFAULT_SCORING_CONFIG: ScoringConfig = {
   a: { top: 30, mid: 22, small: 15, tiny: 8, min: 2 },
   b: { percentiles: 25, meanSd: 22, meanSdSkewed: 15, cutoff: 8, meanOnly: 2 },
   c: { full: 20, minorDiff: 12, mismatch: 3 },
-  d: { fresh: 15, mid: 11, old: 7, veryOld: 3 },
-  e: { top: 10, mid: 7, low: 3 },
+  d: { fresh: 5, mid: 4, old: 2, veryOld: 1 },
+  e: { top: 20, mid: 14, low: 6 },
   tiers: { reliable: 75, acceptable: 50, weak: 30 },
   tieBreakerDelta: 5,
 };
@@ -79,7 +81,7 @@ function scoreC(norm: Norm, cfg: ScoringConfig, flags: NormFlag[]): number {
   }
 }
 
-// D. Свежесть данных — 15 (по году сбора; иначе — по году публикации с флагом)
+// D. Свежесть данных — 5 (по году сбора; иначе — по году публикации с флагом)
 function scoreD(norm: Norm, cfg: ScoringConfig, flags: NormFlag[], currentYear: number): number {
   let year = norm.dataCollectionYear;
   if (year === undefined || year === null) {
@@ -95,7 +97,7 @@ function scoreD(norm: Norm, cfg: ScoringConfig, flags: NormFlag[], currentYear: 
   return cfg.d.veryOld;
 }
 
-// E. Формальный статус источника — 10 (импакт-фактор не используется)
+// E. Формальный статус источника — 20 (импакт-фактор не используется)
 function scoreE(norm: Norm, cfg: ScoringConfig): number {
   switch (norm.sourceType) {
     case 'indexed_article':

@@ -11,6 +11,7 @@ import {
 } from '../domain/types';
 import { DEFAULT_SCORING_CONFIG, ScoringConfig, computeQuality } from '../domain/normSelection/score';
 import { SEED_METHODS } from '../domain/seedMethods';
+import { SEED_NORMS } from '../domain/seedNorms';
 
 function uid(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
@@ -71,10 +72,13 @@ export const methodsRepo = {
     );
   },
 
+  /** Досев: добавляет отсутствующие предустановленные методики, существующие не трогает */
   async seedIfEmpty(db: SqlDatabase): Promise<void> {
-    const [{ n }] = await db.select<{ n: number }>('SELECT COUNT(*) AS n FROM methods');
-    if (n > 0) return;
-    for (const m of SEED_METHODS) await methodsRepo.upsert(db, m);
+    const rows = await db.select<{ method_id: string }>('SELECT method_id FROM methods');
+    const existing = new Set(rows.map((r) => r.method_id));
+    for (const m of SEED_METHODS) {
+      if (!existing.has(m.methodId)) await methodsRepo.upsert(db, m);
+    }
   },
 };
 
@@ -103,13 +107,15 @@ export const subjectsRepo = {
       createdAt: nowIso(),
     };
     await db.run(
-      'INSERT INTO subjects (subject_code, age, education, sex, diagnosis, created_by, created_at) VALUES (?,?,?,?,?,?,?)',
+      'INSERT INTO subjects (subject_code, age, education, sex, diagnosis, medications, comment, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?)',
       [
         subject.subjectCode,
         subject.age,
         subject.education,
         subject.sex ?? null,
         subject.diagnosis ?? null,
+        subject.medications ?? null,
+        subject.comment ?? null,
         subject.createdBy,
         subject.createdAt,
       ],
@@ -126,6 +132,8 @@ export const subjectsRepo = {
       education: Subject['education'];
       sex: Subject['sex'] | null;
       diagnosis: string | null;
+      medications: string | null;
+      comment: string | null;
       created_by: string;
       created_at: string;
     }>(`SELECT * FROM subjects ${where} ORDER BY created_at DESC`, user.role === 'owner' ? [] : [user.userId]);
@@ -135,6 +143,8 @@ export const subjectsRepo = {
       education: r.education,
       sex: r.sex ?? undefined,
       diagnosis: r.diagnosis ?? undefined,
+      medications: r.medications ?? undefined,
+      comment: r.comment ?? undefined,
       createdBy: r.created_by,
       createdAt: r.created_at,
     }));
@@ -293,6 +303,15 @@ export const normsRepo = {
     return uid('norm');
   },
 
+  /** Досев стартовой базы норм: добавляет отсутствующие, существующие не трогает */
+  async seedIfEmpty(db: SqlDatabase, scoring: ScoringConfig = DEFAULT_SCORING_CONFIG): Promise<void> {
+    const rows = await db.select<{ norm_id: string }>('SELECT norm_id FROM norms');
+    const existing = new Set(rows.map((r) => r.norm_id));
+    for (const n of SEED_NORMS) {
+      if (!existing.has(n.normId)) await normsRepo.save(db, n, scoring);
+    }
+  },
+
   /** Новая версия: старая остаётся в истории (supersedes), активной становится новая */
   async newVersion(db: SqlDatabase, current: Norm, scoring: ScoringConfig): Promise<Norm> {
     const next: Norm = {
@@ -329,13 +348,14 @@ export const resultsRepo = {
     const result: TestResult = { ...data, resultId: uid('res'), createdAt: nowIso() };
     await db.run(
       `INSERT INTO test_results (result_id, subject_code, method_id, raw_measures, derived,
-        interpretation, share_consent, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+        qualitative, interpretation, share_consent, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
       [
         result.resultId,
         result.subjectCode,
         result.methodId,
         JSON.stringify(result.rawMeasures),
         JSON.stringify(result.derived),
+        result.qualitativeRows && result.qualitativeRows.length ? JSON.stringify(result.qualitativeRows) : null,
         result.interpretation ?? null,
         result.shareConsent ? 1 : 0,
         result.createdBy,
@@ -346,30 +366,47 @@ export const resultsRepo = {
   },
 
   async listForSubject(db: SqlDatabase, subjectCode: string): Promise<TestResult[]> {
-    const rows = await db.select<{
-      result_id: string;
-      subject_code: string;
-      method_id: string;
-      raw_measures: string;
-      derived: string;
-      interpretation: string | null;
-      share_consent: number;
-      created_by: string;
-      created_at: string;
-    }>('SELECT * FROM test_results WHERE subject_code = ? ORDER BY created_at DESC', [subjectCode]);
-    return rows.map((r) => ({
-      resultId: r.result_id,
-      subjectCode: r.subject_code,
-      methodId: r.method_id,
-      rawMeasures: JSON.parse(r.raw_measures),
-      derived: JSON.parse(r.derived),
-      interpretation: r.interpretation ?? undefined,
-      shareConsent: !!r.share_consent,
-      createdBy: r.created_by,
-      createdAt: r.created_at,
-    }));
+    const rows = await db.select<TestResultRow>(
+      'SELECT * FROM test_results WHERE subject_code = ? ORDER BY created_at DESC',
+      [subjectCode],
+    );
+    return rows.map(testResultFromRow);
+  },
+
+  /** Все результаты (для экспорта слепков; owner-функция) */
+  async listAll(db: SqlDatabase): Promise<TestResult[]> {
+    const rows = await db.select<TestResultRow>('SELECT * FROM test_results ORDER BY created_at DESC');
+    return rows.map(testResultFromRow);
   },
 };
+
+interface TestResultRow {
+  result_id: string;
+  subject_code: string;
+  method_id: string;
+  raw_measures: string;
+  derived: string;
+  qualitative: string | null;
+  interpretation: string | null;
+  share_consent: number;
+  created_by: string;
+  created_at: string;
+}
+
+function testResultFromRow(r: TestResultRow): TestResult {
+  return {
+    resultId: r.result_id,
+    subjectCode: r.subject_code,
+    methodId: r.method_id,
+    rawMeasures: JSON.parse(r.raw_measures),
+    derived: JSON.parse(r.derived),
+    qualitativeRows: r.qualitative ? JSON.parse(r.qualitative) : undefined,
+    interpretation: r.interpretation ?? undefined,
+    shareConsent: !!r.share_consent,
+    createdBy: r.created_by,
+    createdAt: r.created_at,
+  };
+}
 
 export const applicationsRepo = {
   async create(
@@ -432,6 +469,19 @@ export const applicationsRepo = {
 // ---------- settings ----------
 
 export const settingsRepo = {
+  /** Произвольная строковая настройка (например, адрес сервера общей базы) */
+  async getValue(db: SqlDatabase, key: string): Promise<string | undefined> {
+    const rows = await db.select<{ value: string }>('SELECT value FROM settings WHERE key = ?', [key]);
+    return rows[0]?.value;
+  },
+
+  async setValue(db: SqlDatabase, key: string, value: string): Promise<void> {
+    await db.run(
+      'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+      [key, value],
+    );
+  },
+
   async getScoring(db: SqlDatabase): Promise<ScoringConfig> {
     const rows = await db.select<{ value: string }>("SELECT value FROM settings WHERE key = 'scoring'");
     if (rows.length === 0) return DEFAULT_SCORING_CONFIG;
