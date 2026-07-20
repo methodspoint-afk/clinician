@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useApp } from '../store';
 import { settingsRepo } from '../db/repositories';
 import { DEFAULT_SCORING_CONFIG, ScoringConfig } from '../domain/normSelection/score';
-import { SqlJsAdapter, migrate } from '../db/database';
+import { BackupInfo, SqlJsAdapter, inspectBackup, migrate } from '../db/database';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 
 export function SettingsScreen() {
@@ -10,6 +10,9 @@ export function SettingsScreen() {
   const [text, setText] = useState(JSON.stringify(scoring, null, 2));
   const [message, setMessage] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  // Ожидающее подтверждения восстановление: проверенный файл + сводка содержимого
+  const [pending, setPending] = useState<{ bytes: Uint8Array; info: BackupInfo } | null>(null);
+  const [restoring, setRestoring] = useState(false);
 
   async function saveScoring() {
     if (!db) return;
@@ -24,28 +27,59 @@ export function SettingsScreen() {
     }
   }
 
-  async function exportBackup() {
+  async function downloadCurrent(prefix = 'clinician-backup') {
     if (!db) return;
     const bytes = await db.exportBytes();
     const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/octet-stream' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `clinician-backup-${new Date().toISOString().slice(0, 10)}.sqlite`;
+    a.download = `${prefix}-${new Date().toISOString().slice(0, 10)}.sqlite`;
     a.click();
     URL.revokeObjectURL(a.href);
   }
 
-  async function importBackup(file: File) {
+  async function exportBackup() {
+    await downloadCurrent();
+    setMessage('Резервная копия скачана. Храните её в надёжном месте (не только на этом устройстве).');
+  }
+
+  // Шаг 1: проверяем выбранный файл, НЕ трогая текущие данные
+  async function pickRestoreFile(file: File) {
+    setMessage('');
+    setPending(null);
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const restored = await SqlJsAdapter.open({
-      locateWasm: () => wasmUrl,
-      storage: window.localStorage,
-      initialBytes: bytes,
-    });
-    await migrate(restored);
-    await restored.persist();
-    await init(restored);
-    setMessage('Резервная копия восстановлена.');
+    const res = await inspectBackup(bytes, { locateWasm: () => wasmUrl });
+    if (!res.ok) {
+      setMessage(`Восстановление отменено: ${res.error}`);
+      return;
+    }
+    setPending({ bytes, info: res.info });
+  }
+
+  // Шаг 2: по подтверждению — сперва страховочная копия текущей базы, потом замена
+  async function confirmRestore() {
+    if (!pending) return;
+    setRestoring(true);
+    try {
+      await downloadCurrent('clinician-ДО-восстановления');
+      const restored = await SqlJsAdapter.open({
+        locateWasm: () => wasmUrl,
+        storage: window.localStorage,
+        initialBytes: pending.bytes,
+      });
+      await migrate(restored);
+      await restored.persist();
+      await init(restored);
+      setPending(null);
+      setMessage(
+        'Резервная копия восстановлена. Страховочная копия прежних данных скачана. ' +
+          'Рекомендуется перезагрузить страницу.',
+      );
+    } catch (e) {
+      setMessage(`Не удалось восстановить: ${String(e)}. Текущие данные не изменены.`);
+    } finally {
+      setRestoring(false);
+    }
   }
 
   return (
@@ -81,8 +115,8 @@ export function SettingsScreen() {
       <div className="card">
         <h3 style={{ marginTop: 0 }}>Резервная копия</h3>
         <p className="muted">
-          Все данные хранятся локально на этом устройстве. Регулярно сохраняйте резервную копию в
-          надёжное место.
+          Все данные хранятся локально в этом браузере. Если очистить данные браузера или сменить
+          устройство — данные пропадут. Регулярно сохраняйте копию в надёжное место (облако, флешка).
         </p>
         <div className="row">
           <button className="primary" onClick={exportBackup}>
@@ -96,9 +130,32 @@ export function SettingsScreen() {
             type="file"
             accept=".sqlite"
             style={{ display: 'none' }}
-            onChange={(e) => e.target.files?.[0] && importBackup(e.target.files[0])}
+            onChange={(e) => {
+              if (e.target.files?.[0]) pickRestoreFile(e.target.files[0]);
+              e.target.value = '';
+            }}
           />
         </div>
+
+        {pending && (
+          <div className="warn big" style={{ marginTop: 12 }}>
+            <strong>Подтвердите восстановление.</strong> Выбранная копия содержит:{' '}
+            {pending.info.subjects} испытуемых, {pending.info.results} обследований,{' '}
+            {pending.info.norms} норм, {pending.info.methods} методик.
+            <div style={{ marginTop: 6 }}>
+              Все текущие данные в этом браузере будут заменены. Перед заменой автоматически
+              скачается страховочная копия нынешних данных.
+            </div>
+            <div className="row" style={{ marginTop: 10 }}>
+              <button className="danger" disabled={restoring} onClick={confirmRestore}>
+                Скачать страховочную копию и восстановить
+              </button>
+              <button className="secondary" disabled={restoring} onClick={() => setPending(null)}>
+                Отмена
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {message && <div className="warn">{message}</div>}

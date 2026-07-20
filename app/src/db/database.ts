@@ -76,6 +76,58 @@ export class SqlJsAdapter implements SqlDatabase {
   }
 }
 
+export interface BackupInfo {
+  subjects: number;
+  norms: number;
+  methods: number;
+  results: number;
+  migration: number;
+}
+
+/**
+ * Проверяет, что файл — валидная резервная копия приложения, и возвращает
+ * сводку содержимого (для подтверждения перед перезаписью данных).
+ * Открывает копию во временной БД без записи в localStorage.
+ */
+export async function inspectBackup(
+  bytes: Uint8Array,
+  options: { locateWasm?: (file: string) => string } = {},
+): Promise<{ ok: true; info: BackupInfo } | { ok: false; error: string }> {
+  let db: SqlJsAdapter;
+  try {
+    db = await SqlJsAdapter.open({ locateWasm: options.locateWasm, initialBytes: bytes, storage: null });
+  } catch (e) {
+    return { ok: false, error: `Файл не читается как база SQLite (${String(e)})` };
+  }
+  try {
+    const tables = await db.select<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='table'",
+    );
+    const names = new Set(tables.map((t) => t.name));
+    const need = ['schema_migrations', 'subjects', 'norms', 'methods', 'test_results'];
+    const missing = need.filter((n) => !names.has(n));
+    if (missing.length) {
+      return {
+        ok: false,
+        error: `Это не похоже на резервную копию приложения (в файле нет таблиц: ${missing.join(', ')})`,
+      };
+    }
+    const count = async (sql: string) => (await db.select<{ n: number }>(sql))[0]?.n ?? 0;
+    return {
+      ok: true,
+      info: {
+        subjects: await count('SELECT COUNT(*) AS n FROM subjects'),
+        norms: await count('SELECT COUNT(*) AS n FROM norms'),
+        methods: await count('SELECT COUNT(*) AS n FROM methods'),
+        results: await count('SELECT COUNT(*) AS n FROM test_results'),
+        migration: await count('SELECT MAX(version) AS n FROM schema_migrations'),
+      },
+    };
+  } catch (e) {
+    return { ok: false, error: `Не удалось прочитать содержимое копии (${String(e)})` };
+  }
+}
+
 /** Применяет недостающие миграции */
 export async function migrate(db: SqlDatabase): Promise<void> {
   await db.run('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)');

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { migrate, SqlJsAdapter } from './database';
+import { inspectBackup, migrate, SqlJsAdapter } from './database';
 import {
   applicationsRepo,
   methodsRepo,
@@ -258,5 +258,30 @@ describe('Настройки и бэкап', () => {
     const restored = await SqlJsAdapter.open({ initialBytes: bytes });
     const rows = await restored.select('SELECT * FROM subjects');
     expect(rows).toHaveLength(1);
+  });
+
+  it('inspectBackup: валидная копия → сводка содержимого', async () => {
+    await subjectsRepo.create(db, { age: 34, education: 'higher', createdBy: researcher.userId });
+    await subjectsRepo.create(db, { age: 40, education: 'secondary', createdBy: researcher.userId });
+    const res = await inspectBackup(await db.exportBytes());
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.info.subjects).toBe(2);
+      expect(res.info.methods).toBeGreaterThan(0); // засеяны предустановленные методики
+      expect(res.info.migration).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it('inspectBackup: чужая SQLite без таблиц приложения → понятная ошибка, данные не трогаются', async () => {
+    const foreign = await SqlJsAdapter.open();
+    await foreign.run('CREATE TABLE anything (x INTEGER)');
+    const res = await inspectBackup(await foreign.exportBytes());
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain('не похоже на резервную копию');
+  });
+
+  it('inspectBackup: мусорные байты → ошибка чтения, без исключения', async () => {
+    const res = await inspectBackup(new Uint8Array([1, 2, 3, 4, 5]));
+    expect(res.ok).toBe(false);
   });
 });

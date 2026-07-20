@@ -242,6 +242,31 @@ await page.getByText('СЕРВЕРНАЯ НОРМА (e2e)').waitFor();
 console.log('OK: серверная норма видна в базе норм');
 await shot('12-sync');
 
+// --- 7d. Резервная копия: экспорт + безопасное восстановление ---
+step('Настройки: резервная копия — скачивание и защита восстановления');
+await page.getByRole('button', { name: 'Настройки' }).click();
+const [backup] = await Promise.all([
+  page.waitForEvent('download'),
+  page.getByRole('button', { name: 'Скачать резервную копию' }).click(),
+]);
+const backupPath = `${SHOT_DIR}/${backup.suggestedFilename()}`;
+await backup.saveAs(backupPath);
+console.log('OK: резервная копия скачана:', backup.suggestedFilename());
+
+// защита: подсовываем НЕ-нашу базу (сам скрипт e2e) → должно отклониться
+await page.getByRole('button', { name: 'Восстановить из файла…' }).click();
+await page.locator('input[type=file]').setInputFiles('e2e/acceptance.mjs');
+await page.getByText(/Восстановление отменено/).waitFor();
+console.log('OK: чужой файл отклонён, данные не тронуты');
+
+// корректная копия → появляется подтверждение со сводкой
+await page.getByRole('button', { name: 'Восстановить из файла…' }).click();
+await page.locator('input[type=file]').setInputFiles(backupPath);
+await page.getByText(/Подтвердите восстановление/).waitFor();
+console.log('OK: валидная копия — показано подтверждение со сводкой содержимого');
+await page.getByRole('button', { name: 'Отмена' }).click();
+await shot('13-backup');
+
 // --- 8. Persistence: перезагрузка страницы ---
 step('Probe: перезагрузка — данные сохраняются (localStorage/SQLite)');
 await page.reload();
