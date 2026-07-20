@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildNormCatalog,
   buildSubmissions,
+  diffCatalogAgainst,
   NORM_CATALOG_SCHEMA,
   parseNormCatalog,
 } from './sync';
@@ -95,6 +96,19 @@ describe('Каталог норм', () => {
     const parsed = parseNormCatalog(JSON.stringify(bad));
     expect(parsed.norms).toHaveLength(1);
     expect(parsed.errors).toHaveLength(1);
+  });
+
+  it('diffCatalogAgainst: разделяет добавляемые и перезаписывающие (защита от молчаливой перезаписи)', () => {
+    const existing = [norm({ normId: 'a', version: 1 }), norm({ normId: 'b', version: 1 })];
+    const incoming = [
+      norm({ normId: 'a', version: 1 }), // перезапишет
+      norm({ normId: 'b', version: 2 }), // новая версия — добавит
+      norm({ normId: 'c', version: 1 }), // новая — добавит
+    ];
+    const d = diffCatalogAgainst(incoming, existing);
+    expect(d.added).toBe(2);
+    expect(d.overwritten).toBe(1);
+    expect(d.overwrittenKeys).toEqual(['a:1']);
   });
 });
 
