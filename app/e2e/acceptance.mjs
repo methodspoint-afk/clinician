@@ -235,7 +235,7 @@ await page.getByLabel('Адрес сервера').fill(`http://127.0.0.1:${SRV_
 await page.getByLabel('Токен доступа').fill(ADMIN_TOKEN);
 await page.getByRole('button', { name: 'Сохранить настройки' }).click();
 await page.getByRole('button', { name: 'Скачать нормы с сервера' }).click();
-await page.getByText(/Сервер: импортировано норм 1/).waitFor();
+await page.getByText(/Сервер: добавлено 1/).waitFor();
 console.log('OK: норма скачана с сервера по HTTP и импортирована в локальную базу');
 await page.getByRole('button', { name: 'Нормы', exact: true }).click();
 await page.getByText('СЕРВЕРНАЯ НОРМА (e2e)').waitFor();

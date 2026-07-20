@@ -4,6 +4,7 @@ import { normsRepo, resultsRepo, settingsRepo } from '../db/repositories';
 import {
   buildNormCatalog,
   buildSubmissions,
+  diffCatalogAgainst,
   parseNormCatalog,
   Submission,
 } from '../domain/sync';
@@ -53,10 +54,15 @@ export function SyncScreen() {
 
   async function importNormList(norms: Norm[], parseErrors: string[], sourceLabel: string) {
     if (!db) return;
+    // прозрачность разрушительной части: сколько норм будет перезаписано
+    const existing = await normsRepo.listAll(db);
+    const { added, overwritten } = diffCatalogAgainst(norms, existing);
     for (const n of norms) await normsRepo.save(db, n, scoring);
     await persist();
-    const tail = parseErrors.length ? ` Пропущено с ошибками: ${parseErrors.length}.` : '';
-    setMsg({ kind: 'ok', text: `${sourceLabel}: импортировано норм ${norms.length}.${tail}` });
+    const parts = [`добавлено ${added}`];
+    if (overwritten) parts.push(`перезаписано существующих ${overwritten}`);
+    if (parseErrors.length) parts.push(`пропущено с ошибками ${parseErrors.length}`);
+    setMsg({ kind: overwritten ? 'warn' : 'ok', text: `${sourceLabel}: ${parts.join(', ')}.` });
   }
 
   async function pullNormsFromServer() {

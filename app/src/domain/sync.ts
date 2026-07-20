@@ -82,6 +82,30 @@ export function parseNormCatalog(text: string): ParsedCatalog {
   return { norms, errors };
 }
 
+/** Ключ версии нормы для сравнения «добавить vs перезаписать» */
+export function normKey(n: Pick<Norm, 'normId' | 'version'>): string {
+  return `${n.normId}:${n.version}`;
+}
+
+/**
+ * Разбор импорта на «новые» и «перезаписывающие существующие» — чтобы импорт
+ * каталога норм не молча затирал локальные нормы, а честно показывал, сколько
+ * норм будет добавлено и сколько перезаписано (разрушительное действие).
+ */
+export function diffCatalogAgainst(
+  incoming: Norm[],
+  existing: Pick<Norm, 'normId' | 'version'>[],
+): { added: number; overwritten: number; overwrittenKeys: string[] } {
+  const existingKeys = new Set(existing.map(normKey));
+  const overwrittenKeys: string[] = [];
+  let added = 0;
+  for (const n of incoming) {
+    if (existingKeys.has(normKey(n))) overwrittenKeys.push(normKey(n));
+    else added++;
+  }
+  return { added, overwritten: overwrittenKeys.length, overwrittenKeys };
+}
+
 // ---------- Обезличенные слепки результатов ----------
 
 /**
