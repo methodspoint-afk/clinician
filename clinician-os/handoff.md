@@ -129,7 +129,16 @@ shared-base-architecture) → С1 (сервер) → С2 (нормы по диа
 
 ## В РАБОТЕ (незавершённые задачи)
 
-_Сейчас нет. Последний кусок — серверный MVP С1 — завершён и запушен._
+**HTTP-режим экрана «Синхронизация» (часть С1, старт июль 2026).**
+План: `app/src/domain/syncHttp.ts` — клиент к серверу (GET /norms →
+parseNormCatalog; POST /submissions с bearer-токеном), инъекция fetch для
+тестов; настройки «адрес сервера + токен» в таблице settings
+(settingsRepo.getValue/setValue); в SyncScreen — карточка «Сервер общей базы»
+(сохранить адрес/токен, кнопки «Скачать нормы с сервера» и «Отправить
+обезличенные результаты»); файловый режим остаётся. Критерий готовности:
+юнит-тесты syncHttp + все прежние тесты + сборка + e2e зелёные.
+Файлы: app/src/domain/syncHttp.ts(+test), app/src/db/repositories.ts
+(settingsRepo), app/src/ui/SyncScreen.tsx.
 
 ## Статус С1 (июль 2026)
 
