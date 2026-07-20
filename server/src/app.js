@@ -18,9 +18,17 @@ export const SUBMISSIONS_SCHEMA = 'clinician-submissions-1';
 export function buildApp(db, opts = {}) {
   const app = Fastify({ logger: opts.logger ?? false });
 
-  // Bearer-токен без ПДн: роль specialist или admin (см. tokens в БД)
+  // CORS: приложение — статичный сайт на другом origin (GitHub Pages/локально).
+  // API публично читаемое, запись — по токену, поэтому "*" безопасно.
   app.decorateRequest('auth', null);
-  app.addHook('onRequest', async (req) => {
+  app.addHook('onRequest', async (req, reply) => {
+    reply.header('access-control-allow-origin', '*');
+    reply.header('access-control-allow-headers', 'authorization, content-type');
+    reply.header('access-control-allow-methods', 'GET, POST, PATCH, OPTIONS');
+    if (req.method === 'OPTIONS') {
+      reply.code(204).send();
+      return reply;
+    }
     const header = req.headers.authorization ?? '';
     const token = header.startsWith('Bearer ') ? header.slice(7) : undefined;
     req.auth = findToken(db, token) ?? null;

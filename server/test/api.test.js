@@ -191,6 +191,20 @@ describe('Слепки и агрегаты', () => {
   });
 });
 
+describe('CORS (приложение живёт на другом origin)', () => {
+  it('preflight OPTIONS → 204 с нужными заголовками', async () => {
+    const res = await app.inject({ method: 'OPTIONS', url: '/submissions' });
+    expect(res.statusCode).toBe(204);
+    expect(res.headers['access-control-allow-origin']).toBe('*');
+    expect(res.headers['access-control-allow-headers']).toContain('authorization');
+  });
+
+  it('обычный ответ несёт access-control-allow-origin', async () => {
+    const res = await app.inject({ method: 'GET', url: '/norms' });
+    expect(res.headers['access-control-allow-origin']).toBe('*');
+  });
+});
+
 describe('Возрастные корзины', () => {
   it('жёсткие границы 16/60 соблюдаются', () => {
     expect(ageBucket(15)).toBe('<16');

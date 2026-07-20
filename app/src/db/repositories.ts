@@ -469,6 +469,19 @@ export const applicationsRepo = {
 // ---------- settings ----------
 
 export const settingsRepo = {
+  /** Произвольная строковая настройка (например, адрес сервера общей базы) */
+  async getValue(db: SqlDatabase, key: string): Promise<string | undefined> {
+    const rows = await db.select<{ value: string }>('SELECT value FROM settings WHERE key = ?', [key]);
+    return rows[0]?.value;
+  },
+
+  async setValue(db: SqlDatabase, key: string, value: string): Promise<void> {
+    await db.run(
+      'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+      [key, value],
+    );
+  },
+
   async getScoring(db: SqlDatabase): Promise<ScoringConfig> {
     const rows = await db.select<{ value: string }>("SELECT value FROM settings WHERE key = 'scoring'");
     if (rows.length === 0) return DEFAULT_SCORING_CONFIG;

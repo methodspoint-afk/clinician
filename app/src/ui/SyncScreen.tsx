@@ -1,13 +1,14 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useApp } from '../store';
-import { normsRepo, resultsRepo } from '../db/repositories';
+import { normsRepo, resultsRepo, settingsRepo } from '../db/repositories';
 import {
   buildNormCatalog,
   buildSubmissions,
   parseNormCatalog,
   Submission,
 } from '../domain/sync';
-import { Subject } from '../domain/types';
+import { fetchNormCatalog, pushSubmissions } from '../domain/syncHttp';
+import { Norm, Subject } from '../domain/types';
 
 // Этап С0: файловый обмен без сервера. Экспорт каталога норм и обезличенных
 // слепков результатов; импорт каталога норм. Транспорт (файл) на этапе С1
@@ -30,6 +31,70 @@ export function SyncScreen() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'warn'; text: string } | null>(null);
   const [preview, setPreview] = useState<Submission[] | null>(null);
+  const [serverUrl, setServerUrl] = useState('');
+  const [serverToken, setServerToken] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      if (!db) return;
+      setServerUrl((await settingsRepo.getValue(db, 'server_url')) ?? '');
+      setServerToken((await settingsRepo.getValue(db, 'server_token')) ?? '');
+    })();
+  }, [db]);
+
+  async function saveServerSettings() {
+    if (!db) return;
+    await settingsRepo.setValue(db, 'server_url', serverUrl.trim());
+    await settingsRepo.setValue(db, 'server_token', serverToken.trim());
+    await persist();
+    setMsg({ kind: 'ok', text: 'Настройки сервера сохранены (локально, в вашей базе).' });
+  }
+
+  async function importNormList(norms: Norm[], parseErrors: string[], sourceLabel: string) {
+    if (!db) return;
+    for (const n of norms) await normsRepo.save(db, n, scoring);
+    await persist();
+    const tail = parseErrors.length ? ` Пропущено с ошибками: ${parseErrors.length}.` : '';
+    setMsg({ kind: 'ok', text: `${sourceLabel}: импортировано норм ${norms.length}.${tail}` });
+  }
+
+  async function pullNormsFromServer() {
+    if (!db || !serverUrl.trim()) return;
+    setBusy(true);
+    const res = await fetchNormCatalog(serverUrl);
+    if (!res.ok) setMsg({ kind: 'warn', text: res.error });
+    else if (res.catalog.norms.length === 0)
+      setMsg({ kind: 'warn', text: 'На сервере пока нет валидированных норм.' });
+    else await importNormList(res.catalog.norms, res.catalog.errors, 'Сервер');
+    setBusy(false);
+  }
+
+  async function pushSubmissionsToServer() {
+    if (!db || !serverUrl.trim() || !serverToken.trim()) return;
+    setBusy(true);
+    const results = await resultsRepo.listAll(db);
+    const subjectByCode: Record<string, Subject> = {};
+    for (const s of subjects) subjectByCode[s.subjectCode] = s;
+    const methodById = Object.fromEntries(methods.map((m) => [m.methodId, m]));
+    const file = buildSubmissions({ results, subjectByCode, methodById });
+    if (file.submissions.length === 0) {
+      setMsg({
+        kind: 'warn',
+        text: 'Нет данных для отправки: нужны обследования с согласием поделиться обезличенным результатом.',
+      });
+      setBusy(false);
+      return;
+    }
+    const res = await pushSubmissions(serverUrl, serverToken, file);
+    if (!res.ok) setMsg({ kind: 'warn', text: res.error });
+    else
+      setMsg({
+        kind: 'ok',
+        text: `Отправлено в общую базу: ${res.accepted} точек данных${res.rejected ? `, отклонено ${res.rejected}` : ''}.`,
+      });
+    setBusy(false);
+  }
 
   async function exportNorms() {
     if (!db) return;
@@ -69,10 +134,7 @@ export function SyncScreen() {
       setMsg({ kind: 'warn', text: `Импорт не выполнен: ${errors.join('; ') || 'нет норм в файле'}` });
       return;
     }
-    for (const n of norms) await normsRepo.save(db, n, scoring);
-    await persist();
-    const tail = errors.length ? ` Пропущено с ошибками: ${errors.length}.` : '';
-    setMsg({ kind: 'ok', text: `Импортировано норм: ${norms.length}.${tail}` });
+    await importNormList(norms, errors, 'Файл');
   }
 
   function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -96,7 +158,49 @@ export function SyncScreen() {
       {msg && <div className={`warn ${msg.kind === 'ok' ? 'offline' : 'big'}`}>{msg.text}</div>}
 
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Каталог норм</h3>
+        <h3 style={{ marginTop: 0 }}>Сервер общей базы</h3>
+        <p className="muted">
+          Когда сервер проекта развёрнут, обмен идёт в один клик: скачивание общего каталога норм
+          и отправка обезличенных результатов. Адрес и токен выдаёт владелец проекта; токен не
+          содержит персональных данных и хранится только в вашей локальной базе.
+        </p>
+        <div className="grid2">
+          <label className="field">
+            <span>Адрес сервера</span>
+            <input
+              placeholder="https://…"
+              value={serverUrl}
+              onChange={(e) => setServerUrl(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Токен доступа</span>
+            <input
+              placeholder="spc_… или adm_…"
+              value={serverToken}
+              onChange={(e) => setServerToken(e.target.value)}
+            />
+          </label>
+        </div>
+        <div className="row">
+          <button className="secondary" onClick={saveServerSettings}>
+            Сохранить настройки
+          </button>
+          <button className="secondary" disabled={busy || !serverUrl.trim()} onClick={pullNormsFromServer}>
+            Скачать нормы с сервера
+          </button>
+          <button
+            className="primary"
+            disabled={busy || !serverUrl.trim() || !serverToken.trim()}
+            onClick={pushSubmissionsToServer}
+          >
+            Отправить обезличенные результаты
+          </button>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3 style={{ marginTop: 0 }}>Каталог норм (файлы)</h3>
         <p className="muted">
           Экспорт — только валидированные активные нормы. Импорт добавляет нормы из файла в вашу
           базу (балл качества пересчитывается по вашим настройкам).

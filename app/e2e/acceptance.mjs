@@ -1,9 +1,51 @@
 // Сквозной приёмочный сценарий из development-prompt.md, раздел 9
 import { chromium } from 'playwright-core';
+import { spawn, execFileSync } from 'child_process';
 
 const SHOT_DIR = process.env.SHOT_DIR ?? 'e2e/shots';
-import { mkdirSync } from 'fs';
+import { mkdirSync, rmSync } from 'fs';
 mkdirSync(SHOT_DIR, { recursive: true });
+
+// --- Живой сервер общей базы (этап С1) для проверки HTTP-синхронизации ---
+const SRV_PORT = 8788;
+const SRV_DB = '/tmp/e2e-clinician-server.db';
+rmSync(SRV_DB, { force: true });
+rmSync(SRV_DB + '-wal', { force: true });
+const tokenOut = execFileSync('node', ['../server/src/create-token.js', 'admin', 'e2e-admin'], {
+  env: { ...process.env, DB_PATH: SRV_DB },
+  encoding: 'utf8',
+});
+const ADMIN_TOKEN = tokenOut.split('\n').find((l) => l.startsWith('adm_'));
+const srv = spawn('node', ['../server/src/index.js'], {
+  env: { ...process.env, PORT: String(SRV_PORT), DB_PATH: SRV_DB },
+  stdio: 'ignore',
+});
+srv.unref(); // не держать event loop скрипта после E2E DONE
+process.on('exit', () => srv.kill());
+for (let i = 0; i < 50; i++) {
+  try {
+    const r = await fetch(`http://127.0.0.1:${SRV_PORT}/health`);
+    if (r.ok) break;
+  } catch { /* ещё поднимается */ }
+  await new Promise((res) => setTimeout(res, 100));
+}
+// заносим на сервер валидированную норму, которую UI потом скачает
+await fetch(`http://127.0.0.1:${SRV_PORT}/norms`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', authorization: `Bearer ${ADMIN_TOKEN}` },
+  body: JSON.stringify({
+    norms: [{
+      normId: 'srv_norm_1', version: 1, sourceRef: 'СЕРВЕРНАЯ НОРМА (e2e)',
+      sourceType: 'methodical_guide', validationStatus: 'validated', active: true,
+      methodId: 'ten_words', metric: 'delayed', procedureMatch: 'full',
+      ageMin: 18, ageMax: 45, educationLevel: 'not_stratified', language: 'ru',
+      clinicalStatus: 'healthy', cellN: 120, statForm: 'mean_sd', mean: 8, sd: 1.5,
+      isSkewed: false, higherIsWorse: false, dataCollectionYear: 2020,
+      stratifiedBy: ['age'], flags: [], appliedCount: 0,
+    }],
+  }),
+});
+console.log('OK: тестовый сервер С1 поднят на', SRV_PORT, 'с одной валидированной нормой');
 
 const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH ?? '/opt/pw-browsers/chromium',
@@ -186,6 +228,18 @@ const [dl] = await Promise.all([
 ]);
 console.log('OK: каталог норм выгружен файлом:', dl.suggestedFilename());
 await page.getByText(/Экспортировано норм/).waitFor();
+
+// HTTP-режим (этап С1): скачиваем норму с живого сервера через UI (проверяет и CORS)
+step('Синхронизация: скачивание норм с сервера по HTTP');
+await page.getByLabel('Адрес сервера').fill(`http://127.0.0.1:${SRV_PORT}`);
+await page.getByLabel('Токен доступа').fill(ADMIN_TOKEN);
+await page.getByRole('button', { name: 'Сохранить настройки' }).click();
+await page.getByRole('button', { name: 'Скачать нормы с сервера' }).click();
+await page.getByText(/Сервер: импортировано норм 1/).waitFor();
+console.log('OK: норма скачана с сервера по HTTP и импортирована в локальную базу');
+await page.getByRole('button', { name: 'Нормы', exact: true }).click();
+await page.getByText('СЕРВЕРНАЯ НОРМА (e2e)').waitFor();
+console.log('OK: серверная норма видна в базе норм');
 await shot('12-sync');
 
 // --- 8. Persistence: перезагрузка страницы ---
