@@ -367,8 +367,8 @@ export function Examination({ code }: { code: string }) {
                 checked={shareConsent}
                 onChange={(e) => setShareConsent(e.target.checked)}
               />
-              Согласен(на) поделиться обезличенным результатом в общей базе (функция появится в
-              следующей версии; сейчас сохраняется только согласие)
+              Согласен(на) поделиться обезличенным результатом в общей базе (отправка — на экране
+              «Синхронизация»; без кода испытуемого и комментариев)
             </label>
             <div className="row" style={{ marginTop: 14 }}>
               <button className="secondary" onClick={() => setStep(2)}>
