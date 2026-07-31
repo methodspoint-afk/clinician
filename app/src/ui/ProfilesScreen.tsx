@@ -22,6 +22,14 @@ export function ProfilesScreen() {
   return (
     <div className="main" style={{ margin: '0 auto', maxWidth: 560, paddingTop: 60 }}>
       <h2>Выбор профиля</h2>
+      <div className="privacy-banner">
+        <span aria-hidden="true">🔒</span>
+        <div>
+          <strong>Приватность по умолчанию.</strong> ФИО испытуемых в приложении не
+          хранятся — вы работаете с обезличенными кодами. Все выводы — поддержка
+          решения специалиста, а не диагноз.
+        </div>
+      </div>
       <p className="muted">
         Каждый специалист работает под своим профилем и видит только своих испытуемых.
         Владелец (Owner) дополнительно управляет базой норм.
