@@ -38,6 +38,10 @@ export function App() {
             </button>
           ))}
         <div className="spacer" />
+        <div className="privacy-note" title="ФИО испытуемых в приложении не хранятся. Все выводы — поддержка решения специалиста, а не диагноз.">
+          <span aria-hidden="true">🔒</span>
+          <span>ФИО не хранится · поддержка решения, не диагноз</span>
+        </div>
         <div className="userbox">
           {user.displayName}
           <br />

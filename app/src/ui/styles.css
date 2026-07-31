@@ -71,6 +71,20 @@ body {
 .sidebar button.active { background: var(--accent); color: #fff; font-weight: 600; }
 .sidebar button:focus-visible { outline: 2px solid #7ea4f3; outline-offset: 1px; }
 .sidebar .spacer { flex: 1; }
+.sidebar .privacy-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #9fb0c6;
+  background: #202c3c;
+  border: 1px solid #33445c;
+  border-radius: 8px;
+  padding: 9px 11px;
+  margin: 4px 4px 6px;
+}
+.sidebar .privacy-note span:first-child { flex: 0 0 auto; opacity: 0.85; }
 .sidebar .userbox {
   font-size: 13px;
   color: #93a2b8;
@@ -231,6 +245,24 @@ tbody tr:hover td { background: #fafbfd; }
   margin: 8px 0 14px;
 }
 
+/* ---------- Плашка приватности (экран выбора профиля) ---------- */
+
+.privacy-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--accent-soft);
+  border: 1px solid #cfe0fb;
+  border-radius: var(--radius);
+  padding: 12px 15px;
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #24446e;
+}
+.privacy-banner span:first-child { flex: 0 0 auto; font-size: 15px; line-height: 1.4; }
+.privacy-banner strong { color: #1b3557; }
+
 /* ---------- Подбор нормы ---------- */
 
 .norm-option {
@@ -298,6 +330,7 @@ details.rejected[open] summary { margin-bottom: 8px; }
   .sidebar h1 { flex-basis: 100%; margin: 2px 4px 8px; font-size: 14px; }
   .sidebar button { padding: 8px 12px; }
   .sidebar .spacer { display: none; }
+  .sidebar .privacy-note { display: none; }
   .sidebar .userbox { border-top: none; margin: 0 0 0 auto; padding: 6px 8px; }
   .main { padding: 18px 16px 40px; }
   .grid3 { grid-template-columns: 1fr 1fr; }
