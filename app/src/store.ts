@@ -13,7 +13,8 @@ export type Route =
   | { name: 'norms' }
   | { name: 'methods' }
   | { name: 'sync' }
-  | { name: 'settings' };
+  | { name: 'settings' }
+  | { name: 'help' };
 
 interface AppState {
   db: SqlDatabase | null;

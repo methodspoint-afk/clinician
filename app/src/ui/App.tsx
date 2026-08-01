@@ -8,6 +8,7 @@ import { NormsScreen } from './NormsScreen';
 import { MethodsScreen } from './MethodsScreen';
 import { SyncScreen } from './SyncScreen';
 import { SettingsScreen } from './SettingsScreen';
+import { HelpScreen } from './HelpScreen';
 
 export function App() {
   const { user, route, go, logout, online } = useApp();
@@ -20,6 +21,7 @@ export function App() {
     { label: 'Методики', route: { name: 'methods' }, ownerOnly: true },
     { label: 'Синхронизация', route: { name: 'sync' }, ownerOnly: true },
     { label: 'Настройки', route: { name: 'settings' }, ownerOnly: true },
+    { label: 'Справка', route: { name: 'help' } },
   ];
 
   return (
@@ -64,6 +66,7 @@ export function App() {
         {route.name === 'methods' && <MethodsScreen />}
         {route.name === 'sync' && <SyncScreen />}
         {route.name === 'settings' && <SettingsScreen />}
+        {route.name === 'help' && <HelpScreen />}
       </main>
     </div>
   );
