@@ -115,7 +115,18 @@ export function SubjectsScreen() {
       </label>
 
       {filtered.length === 0 ? (
-        <div className="empty">Пока нет испытуемых. Создайте первую карточку.</div>
+        <div className="empty">
+          Пока нет испытуемых. Создайте первую карточку.
+          <div style={{ marginTop: 10 }}>
+            Впервые здесь?{' '}
+            <button
+              className="linklike"
+              onClick={() => go({ name: 'help' })}
+            >
+              С чего начать
+            </button>
+          </div>
+        </div>
       ) : (
         filtered.map((s) => (
           <div key={s.subjectCode} className="card clickable" onClick={() => go({ name: 'subject', code: s.subjectCode })}>
